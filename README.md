@@ -1,2 +1,2 @@
-# -reservation-app
+# reservation-app
  Reservation app
