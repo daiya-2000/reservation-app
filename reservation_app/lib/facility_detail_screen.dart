@@ -16,6 +16,9 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
   DateTime _selectedDate = DateTime.now();
   Map<String, Map<String, bool>> _weeklyReservationStatus = {};
 
+  // ▼ 追加：読み込み中かどうかを管理するフラグ
+  bool _isLoading = false;
+
   final ScrollController _horizontalScrollController = ScrollController();
 
   @override
@@ -24,17 +27,23 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     _fetchReservationStatusForWeek(_selectedDate);
   }
 
+  // ▼ 修正：Firestore からのデータ取得前後で _isLoading を切り替える
   Future<void> _fetchReservationStatusForWeek(DateTime startDate) async {
+    setState(() {
+      _isLoading = true;
+    });
+
     Map<String, Map<String, bool>> newWeeklyStatus = {};
 
     for (int i = 0; i < 7; i++) {
       final day = startDate.add(Duration(days: i));
-      final dateKey = day.toIso8601String().split('T')[0];
+      final dayOnly = DateTime(day.year, day.month, day.day);
+      final dayKey = dayOnly.toIso8601String().split('T')[0];
 
       final querySnapshot = await FirebaseFirestore.instance
           .collection('reservations')
           .where('facilityId', isEqualTo: widget.facility['id'])
-          .where('date', isEqualTo: dateKey)
+          .where('date', isEqualTo: Timestamp.fromDate(dayOnly))
           .get();
 
       final reservedTimes = querySnapshot.docs
@@ -48,14 +57,16 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
         final minute = (index % 2) * 30;
         final timeStr =
             '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+
         dailyStatus[timeStr] = reservedTimes.contains(timeStr);
       }
 
-      newWeeklyStatus[dateKey] = dailyStatus;
+      newWeeklyStatus[dayKey] = dailyStatus;
     }
 
     setState(() {
       _weeklyReservationStatus = newWeeklyStatus;
+      _isLoading = false;
     });
   }
 
@@ -68,6 +79,101 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       }
     });
     _fetchReservationStatusForWeek(_selectedDate);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('施設詳細'),
+      ),
+      // ▼ 修正：_isLoading が true の間はローディングを表示、それ以外はメインのUIを表示
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _buildMainContent(context),
+    );
+  }
+
+  Widget _buildMainContent(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final selectedDay =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    final canShowPreviousWeek = selectedDay.isAfter(today);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16.0, bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 施設画像
+          ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: widget.facility['image'] != null
+                ? Image.network(
+                    widget.facility['image'],
+                    height: 200,
+                    fit: BoxFit.cover,
+                  )
+                : Container(
+                    height: 200,
+                    color: Colors.grey[300],
+                    child: const Center(child: Text('施設画像')),
+                  ),
+          ),
+          const SizedBox(height: 16),
+          // 施設名
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              widget.facility['name'] ?? '施設名なし',
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // 利用金額
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              '利用金額: ${widget.facility['price']}円',
+              style: const TextStyle(fontSize: 18),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 24),
+          // 週移動ボタン
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                if (canShowPreviousWeek)
+                  ElevatedButton(
+                    onPressed: () => _changeWeek(-7),
+                    child: const Text('前の週'),
+                  ),
+                ElevatedButton(
+                  onPressed: () => _changeWeek(0),
+                  child: const Text('今日の日付'),
+                ),
+                ElevatedButton(
+                  onPressed: () => _changeWeek(7),
+                  child: const Text('次の週'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ヘッダー
+          _buildHeaderTable(context),
+
+          // ボディ
+          Expanded(child: _buildBodyTable(context)),
+        ],
+      ),
+    );
   }
 
   Widget _buildHeaderTable(BuildContext context) {
@@ -132,7 +238,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
         return SingleChildScrollView(
           scrollDirection: Axis.vertical,
-          physics: const ClampingScrollPhysics(), // ← ここを追加
+          physics: const ClampingScrollPhysics(),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             controller: _horizontalScrollController,
@@ -158,12 +264,13 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
                 return DataRow(
                   cells: [
+                    // 左端の時間セル
                     DataCell(
                       SizedBox(
                         width: columnWidth,
                         child: Center(
                           child: Text(
-                            "$hourStr:$minuteStr",
+                            time,
                             style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
@@ -172,9 +279,13 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
                         ),
                       ),
                     ),
+                    // 7日分
                     ...List.generate(7, (dayIndex) {
                       final day = _selectedDate.add(Duration(days: dayIndex));
-                      final dateKey = day.toIso8601String().split('T')[0];
+                      final dateKey = DateTime(day.year, day.month, day.day)
+                          .toIso8601String()
+                          .split('T')[0];
+
                       final isReserved =
                           _weeklyReservationStatus[dateKey]?[time] ?? false;
 
@@ -280,21 +391,23 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
   Future<void> _reserveTime(
       DateTime selectedDay, String startTime, String endTime) async {
     try {
-      final dateKey = selectedDay.toIso8601String().split('T')[0];
       final user = FirebaseAuth.instance.currentUser;
       final userId = user?.uid ?? "unknown_user";
       final reservedBy = user?.email ?? "unknown_email";
 
       final timesToReserve = _generateTimeRange(startTime, endTime);
+      final dateOnly =
+          DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
 
       await FirebaseFirestore.instance.collection('reservations').add({
-        'date': dateKey,
+        'date': Timestamp.fromDate(dateOnly),
         'facilityId': widget.facility['id'],
         'reservedBy': reservedBy,
         'userId': userId,
         'times': timesToReserve,
       });
 
+      // 予約が完了したら再読み込み
       await _fetchReservationStatusForWeek(_selectedDate);
     } catch (e) {
       print("Error reserving time: $e");
@@ -324,6 +437,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
         currentHour++;
         currentMinute -= 60;
       }
+      // 終了時刻を超えたらループを抜ける
       if (currentHour > endHour ||
           (currentHour == endHour && currentMinute > endMinute)) {
         break;
@@ -373,6 +487,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       final nextTimeStr =
           "${nextHour.toString().padLeft(2, '0')}:${nextMinute.toString().padLeft(2, '0')}";
 
+      // 次のコマが予約済みになっていたら、そこで打ち切り
       if (dailyStatus[nextTimeStr] == true) {
         options.add(nextTimeStr);
         break;
@@ -404,94 +519,5 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       default:
         return "";
     }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final selectedDay =
-        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-    final canShowPreviousWeek = selectedDay.isAfter(today);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('施設詳細'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.only(top: 16.0, bottom: 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 施設画像
-            ClipRRect(
-              borderRadius: BorderRadius.circular(15),
-              child: widget.facility['image'] != null
-                  ? Image.network(
-                      widget.facility['image'],
-                      height: 200,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      height: 200,
-                      color: Colors.grey[300],
-                      child: const Center(child: Text('施設画像')),
-                    ),
-            ),
-            const SizedBox(height: 16),
-            // 施設名
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Text(
-                widget.facility['name'] ?? '施設名なし',
-                style:
-                    const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 8),
-            // 利用金額
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Text(
-                '利用金額: ${widget.facility['price']}円',
-                style: const TextStyle(fontSize: 18),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 24),
-            // 週移動ボタン
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  if (canShowPreviousWeek)
-                    ElevatedButton(
-                      onPressed: () => _changeWeek(-7),
-                      child: const Text('前の週'),
-                    ),
-                  ElevatedButton(
-                    onPressed: () => _changeWeek(0),
-                    child: const Text('今日の日付'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => _changeWeek(7),
-                    child: const Text('次の週'),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // ヘッダー
-            _buildHeaderTable(context),
-
-            // ボディ
-            Expanded(child: _buildBodyTable(context)),
-          ],
-        ),
-      ),
-    );
   }
 }

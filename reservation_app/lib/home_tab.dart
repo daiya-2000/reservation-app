@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -50,7 +49,6 @@ class _HomeTabState extends State<HomeTab> {
           .get();
       final userData = userDoc.data();
       if (userData != null && mounted) {
-        // mounted プロパティで確認
         setState(() {
           _userInfo = userData;
         });
@@ -63,7 +61,6 @@ class _HomeTabState extends State<HomeTab> {
             .doc(apartmentId)
             .get();
         if (mounted) {
-          // mounted プロパティで確認
           setState(() {
             _apartmentName = apartmentDoc.data()?['name'] ?? '不明なマンション';
           });
@@ -74,8 +71,12 @@ class _HomeTabState extends State<HomeTab> {
     }
   }
 
-  Future<void> _showProfileDialog(BuildContext context,
-      Map<String, dynamic> userInfo, String apartmentName) async {
+  // プロフィール修正ダイアログ
+  Future<void> _showProfileDialog(
+    BuildContext context,
+    Map<String, dynamic> userInfo,
+    String apartmentName,
+  ) async {
     final TextEditingController nameController =
         TextEditingController(text: userInfo['name']);
 
@@ -113,9 +114,7 @@ class _HomeTabState extends State<HomeTab> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text('キャンセル'),
             ),
             ElevatedButton(
@@ -148,6 +147,7 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+  // メールアドレスリセット
   Future<void> _resetEmail(BuildContext context) async {
     final TextEditingController currentPasswordController =
         TextEditingController();
@@ -177,8 +177,9 @@ class _HomeTabState extends State<HomeTab> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('キャンセル')),
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル'),
+            ),
             ElevatedButton(
               onPressed: () async {
                 try {
@@ -189,6 +190,7 @@ class _HomeTabState extends State<HomeTab> {
                   await _currentUser?.reauthenticateWithCredential(credential);
                   Navigator.pop(context);
 
+                  // 新しいメールアドレス入力ダイアログ
                   await showDialog(
                     context: context,
                     builder: (context) {
@@ -217,8 +219,9 @@ class _HomeTabState extends State<HomeTab> {
                         ),
                         actions: [
                           TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('キャンセル')),
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('キャンセル'),
+                          ),
                           ElevatedButton(
                             onPressed: () async {
                               if (newEmailController.text.trim() !=
@@ -241,12 +244,15 @@ class _HomeTabState extends State<HomeTab> {
                                 Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                      content: Text(
-                                          '確認メールを新しいアドレスに送信しました。確認後に変更が有効になります。')),
+                                    content: Text(
+                                      '確認メールを新しいアドレスに送信しました。確認後に変更が有効になります。',
+                                    ),
+                                  ),
                                 );
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('エラー: $e')));
+                                  SnackBar(content: Text('エラー: $e')),
+                                );
                               }
                             },
                             child: const Text('保存'),
@@ -268,6 +274,7 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+  // パスワードリセット
   Future<void> _resetPassword(BuildContext context) async {
     final TextEditingController currentPasswordController =
         TextEditingController();
@@ -308,6 +315,7 @@ class _HomeTabState extends State<HomeTab> {
                   await _currentUser?.reauthenticateWithCredential(credential);
                   Navigator.pop(context);
 
+                  // 新しいパスワード入力ダイアログ
                   await showDialog(
                     context: context,
                     builder: (context) {
@@ -360,7 +368,8 @@ class _HomeTabState extends State<HomeTab> {
                                 );
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('エラー: $e')));
+                                  SnackBar(content: Text('エラー: $e')),
+                                );
                               }
                             },
                             child: const Text('保存'),
@@ -384,6 +393,7 @@ class _HomeTabState extends State<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
+    // ユーザー情報やマンション名がまだ読み込まれていない場合はローディング
     if (_userInfo == null || _apartmentName == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -414,21 +424,28 @@ class _HomeTabState extends State<HomeTab> {
             Text('氏名: ${_userInfo?['name'] ?? '不明'}',
                 style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 24),
+
+            // セクションカード：新しい掲示
             _buildSectionCard(
               title: '新しい掲示',
               onTap: () {
-                // 新しい掲示ページ
+                // 新しい掲示ページへ遷移
               },
             ),
+
+            // セクションカード：要申請の項目
             _buildSectionCard(
               title: '要申請の項目',
               onTap: () {
-                // 要申請ページ
+                // 要申請ページへ遷移
               },
             ),
+
+            // セクションカード：現在の予約内容
             _buildSectionCard(
               title: '現在の予約内容',
               onTap: () {
+                // 現在の予約内容ページ (CurrentReservationsPage) へ遷移
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -437,18 +454,24 @@ class _HomeTabState extends State<HomeTab> {
                 );
               },
             ),
+
+            // プロフィール修正
             _buildSectionCard(
               title: 'プロフィール修正',
               onTap: () {
                 _showProfileDialog(context, _userInfo!, _apartmentName!);
               },
             ),
+
+            // メールアドレスをリセット
             _buildSectionCard(
               title: 'メールアドレスをリセット',
               onTap: () {
                 _resetEmail(context);
               },
             ),
+
+            // パスワードをリセット
             _buildSectionCard(
               title: 'パスワードをリセット',
               onTap: () {
@@ -481,6 +504,7 @@ class _HomeTabState extends State<HomeTab> {
   }
 }
 
+/// 現在の予約内容ページ
 class CurrentReservationsPage extends StatelessWidget {
   const CurrentReservationsPage({Key? key}) : super(key: key);
 
@@ -488,15 +512,18 @@ class CurrentReservationsPage extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return [];
 
-    final today = DateTime.now(); // Get today's date
-    final todayString =
-        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    // 今日の 0:00 を表す DateTime
+    final now = DateTime.now();
+    final todayMidnight = DateTime(now.year, now.month, now.day);
 
+    // Firestore 用 Timestamp
+    final todayTimestamp = Timestamp.fromDate(todayMidnight);
+
+    // 「userId == user.uid」かつ「date >= 今日の 0:00」だけ取得
     final reservationsSnapshot = await FirebaseFirestore.instance
         .collection('reservations')
-        .where('reservedBy', isEqualTo: user.email)
-        .where('date',
-            isGreaterThanOrEqualTo: todayString) // Filter future reservations
+        .where('userId', isEqualTo: user.uid)
+        .where('date', isGreaterThanOrEqualTo: todayTimestamp)
         .get();
 
     List<Map<String, dynamic>> reservations = [];
@@ -505,6 +532,7 @@ class CurrentReservationsPage extends StatelessWidget {
       final data = reservationDoc.data();
       final facilityId = data['facilityId'];
 
+      // 施設情報を取得
       final facilitySnapshot = await FirebaseFirestore.instance
           .collection('facilities')
           .doc(facilityId)
@@ -544,9 +572,7 @@ class CurrentReservationsPage extends StatelessWidget {
           content: Text('施設名: $facilityName'),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Text('戻る'),
             ),
             ElevatedButton(
@@ -577,7 +603,6 @@ class CurrentReservationsPage extends StatelessWidget {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-
           if (snapshot.hasError ||
               snapshot.data == null ||
               snapshot.data!.isEmpty) {
@@ -590,6 +615,13 @@ class CurrentReservationsPage extends StatelessWidget {
             itemCount: reservations.length,
             itemBuilder: (context, index) {
               final reservation = reservations[index];
+              final timestamp = reservation['date'] as Timestamp;
+              final reservation_date = timestamp.toDate();
+              final year = reservation_date.year;
+              final month = reservation_date.month.toString().padLeft(2, '0');
+              final day = reservation_date.day.toString().padLeft(2, '0');
+
+              final formattedDate = '$year/$month/$day';
 
               return GestureDetector(
                 onTap: () {
@@ -601,7 +633,9 @@ class CurrentReservationsPage extends StatelessWidget {
                 },
                 child: Card(
                   margin: const EdgeInsets.symmetric(
-                      vertical: 12.0, horizontal: 16.0),
+                    vertical: 12.0,
+                    horizontal: 16.0,
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Row(
@@ -623,11 +657,14 @@ class CurrentReservationsPage extends StatelessWidget {
                               Text(
                                 reservation['facilityName'],
                                 style: const TextStyle(
-                                    fontSize: 18, fontWeight: FontWeight.bold),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '${reservation['date']} ${reservation['startTime']} - ${reservation['endTime']}',
+                                '$formattedDate\n'
+                                '${reservation['startTime']} - ${reservation['endTime']}',
                                 style: const TextStyle(fontSize: 16),
                               ),
                             ],
