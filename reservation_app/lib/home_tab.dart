@@ -545,12 +545,29 @@ class CurrentReservationsPage extends StatelessWidget {
           'id': reservationDoc.id,
           'facilityName': facilityData?['name'] ?? '不明な施設',
           'imageUrl': facilityData?['image'],
+          // times は [ '09:00', '09:30', ... ] のように昇順に並んでいる想定
           'startTime': data['times']?.first,
           'endTime': data['times']?.last,
-          'date': data['date'],
+          'date': data['date'], // Timestamp
         });
       }
     }
+
+    // ▼ ここで「日付 → 開始時刻」の順でソートする
+    reservations.sort((a, b) {
+      final aDateTime = (a['date'] as Timestamp).toDate();
+      final bDateTime = (b['date'] as Timestamp).toDate();
+      // 1) 日付を比較
+      final dateCompare = aDateTime.compareTo(bDateTime);
+      if (dateCompare != 0) {
+        return dateCompare;
+      }
+
+      // 2) 同じ日付の場合は startTime (文字列 "HH:mm") を比較
+      final aStart = a['startTime'] as String;
+      final bStart = b['startTime'] as String;
+      return aStart.compareTo(bStart);
+    });
 
     return reservations;
   }
