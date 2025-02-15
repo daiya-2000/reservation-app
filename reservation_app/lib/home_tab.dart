@@ -152,8 +152,9 @@ class _HomeTabState extends State<HomeTab> {
     final TextEditingController currentPasswordController =
         TextEditingController();
     final TextEditingController newEmailController = TextEditingController();
+    final TextEditingController confirmEmailController =
+        TextEditingController();
 
-    // ダイアログ1: 現在のパスワード入力
     await showDialog(
       context: context,
       builder: (context) {
@@ -176,23 +177,18 @@ class _HomeTabState extends State<HomeTab> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('キャンセル'),
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル')),
             ElevatedButton(
               onPressed: () async {
                 try {
-                  // 再認証
                   final credential = EmailAuthProvider.credential(
                     email: _currentUser?.email ?? '',
                     password: currentPasswordController.text.trim(),
                   );
                   await _currentUser?.reauthenticateWithCredential(credential);
-                  Navigator.pop(context); // ダイアログ1を閉じる
+                  Navigator.pop(context);
 
-                  // ダイアログ2: 新しいメールアドレス入力
                   await showDialog(
                     context: context,
                     builder: (context) {
@@ -202,7 +198,6 @@ class _HomeTabState extends State<HomeTab> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text('新しいメールアドレスを入力してください。'),
-                            const SizedBox(height: 8),
                             TextField(
                               controller: newEmailController,
                               decoration: const InputDecoration(
@@ -210,41 +205,48 @@ class _HomeTabState extends State<HomeTab> {
                                 border: OutlineInputBorder(),
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: confirmEmailController,
+                              decoration: const InputDecoration(
+                                labelText: '新しいメールアドレス（確認用）',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
                           ],
                         ),
                         actions: [
                           TextButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                            },
-                            child: const Text('キャンセル'),
-                          ),
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('キャンセル')),
                           ElevatedButton(
                             onPressed: () async {
+                              if (newEmailController.text.trim() !=
+                                  confirmEmailController.text.trim()) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('メールアドレスが一致しません。')),
+                                );
+                                return;
+                              }
                               try {
-                                // 新しいメールアドレスの確認メールを送信
                                 await _currentUser?.verifyBeforeUpdateEmail(
                                     newEmailController.text.trim());
-
-                                // Firestore の email フィールドを更新
                                 await FirebaseFirestore.instance
                                     .collection('users')
                                     .doc(_currentUser?.uid)
                                     .update({
                                   'email': newEmailController.text.trim(),
                                 });
-
-                                Navigator.pop(context); // ダイアログ2を閉じる
+                                Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text(
-                                        '確認メールを新しいアドレスに送信しました。確認後に変更が有効になります。'),
-                                  ),
+                                      content: Text(
+                                          '確認メールを新しいアドレスに送信しました。確認後に変更が有効になります。')),
                                 );
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('エラー: $e')),
-                                );
+                                    SnackBar(content: Text('エラー: $e')));
                               }
                             },
                             child: const Text('保存'),
@@ -254,9 +256,8 @@ class _HomeTabState extends State<HomeTab> {
                     },
                   );
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('エラー: $e')),
-                  );
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('エラー: $e')));
                 }
               },
               child: const Text('次へ'),
@@ -271,8 +272,9 @@ class _HomeTabState extends State<HomeTab> {
     final TextEditingController currentPasswordController =
         TextEditingController();
     final TextEditingController newPasswordController = TextEditingController();
+    final TextEditingController confirmPasswordController =
+        TextEditingController();
 
-    // ダイアログ1: 現在のパスワード入力
     await showDialog(
       context: context,
       builder: (context) {
@@ -282,7 +284,6 @@ class _HomeTabState extends State<HomeTab> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text('現在のパスワードを入力してください。'),
-              const SizedBox(height: 8),
               TextField(
                 controller: currentPasswordController,
                 obscureText: true,
@@ -295,23 +296,18 @@ class _HomeTabState extends State<HomeTab> {
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('キャンセル'),
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル')),
             ElevatedButton(
               onPressed: () async {
                 try {
-                  // 再認証
                   final credential = EmailAuthProvider.credential(
                     email: _currentUser?.email ?? '',
                     password: currentPasswordController.text.trim(),
                   );
                   await _currentUser?.reauthenticateWithCredential(credential);
-                  Navigator.pop(context); // ダイアログ1を閉じる
+                  Navigator.pop(context);
 
-                  // ダイアログ2: 新しいパスワード入力
                   await showDialog(
                     context: context,
                     builder: (context) {
@@ -321,7 +317,6 @@ class _HomeTabState extends State<HomeTab> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Text('新しいパスワードを入力してください。'),
-                            const SizedBox(height: 8),
                             TextField(
                               controller: newPasswordController,
                               obscureText: true,
@@ -330,31 +325,42 @@ class _HomeTabState extends State<HomeTab> {
                                 border: OutlineInputBorder(),
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: confirmPasswordController,
+                              obscureText: true,
+                              decoration: const InputDecoration(
+                                labelText: '新しいパスワード（確認用）',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
                           ],
                         ),
                         actions: [
                           TextButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                            },
-                            child: const Text('キャンセル'),
-                          ),
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('キャンセル')),
                           ElevatedButton(
                             onPressed: () async {
-                              try {
-                                // 新しいパスワードを設定
-                                await _currentUser?.updatePassword(
-                                    newPasswordController.text.trim());
-                                Navigator.pop(context); // ダイアログ2を閉じる
+                              if (newPasswordController.text.trim() !=
+                                  confirmPasswordController.text.trim()) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('パスワードが更新されました。'),
-                                  ),
+                                      content: Text('パスワードが一致しません。')),
+                                );
+                                return;
+                              }
+                              try {
+                                await _currentUser?.updatePassword(
+                                    newPasswordController.text.trim());
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('パスワードが更新されました。')),
                                 );
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('エラー: $e')),
-                                );
+                                    SnackBar(content: Text('エラー: $e')));
                               }
                             },
                             child: const Text('保存'),
@@ -364,9 +370,8 @@ class _HomeTabState extends State<HomeTab> {
                     },
                   );
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('エラー: $e')),
-                  );
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text('エラー: $e')));
                 }
               },
               child: const Text('次へ'),
