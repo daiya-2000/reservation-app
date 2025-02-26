@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'register_screen.dart';
-import 'main_screen.dart'; // 住人用メイン画面をインポート
-import 'admin_screen.dart'; // 管理者画面をインポート
-import 'operator_screen.dart'; // 管理人用画面をインポート
+import 'main_screen.dart'; // 住人用メイン画面
+import 'admin_screen.dart'; // 管理者画面
+import 'operator_screen.dart'; // 管理人用画面
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -14,36 +14,25 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _loginController = TextEditingController(); // メールまたは部屋番号を入力
+  final _emailController = TextEditingController(); // メールアドレス用
   final _passwordController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   Future<void> _login() async {
     try {
-      String email = _loginController.text.trim();
-
-      // 部屋番号の場合、Firestoreからメールアドレスを取得
-      if (!_loginController.text.contains('@')) {
-        final userQuery = await FirebaseFirestore.instance
-            .collection('users')
-            .where('roomNumber', isEqualTo: email)
-            .get();
-
-        if (userQuery.docs.isEmpty) {
-          throw Exception('部屋番号が見つかりません。');
-        }
-
-        email = userQuery.docs.first['email']; // 該当するユーザーのメールを取得
-      }
+      final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
 
       // Firebase Authenticationでログイン
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
-        password: _passwordController.text.trim(),
+        password: password,
       );
 
       final user = userCredential.user;
-      if (user == null) throw Exception('ユーザー情報の取得に失敗しました。');
+      if (user == null) {
+        throw Exception('ユーザー情報の取得に失敗しました。');
+      }
 
       // Firestoreからユーザーのroleを取得
       final userDoc = await FirebaseFirestore.instance
@@ -71,7 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       // エラーメッセージを表示
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ログイン失敗: ${e.toString()}')),
+        SnackBar(content: Text('ログイン失敗: $e')),
       );
     }
   }
@@ -85,12 +74,14 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // メールアドレス入力
             TextField(
-              controller: _loginController,
+              controller: _emailController,
               decoration: const InputDecoration(
-                labelText: 'Eメールまたは部屋番号',
+                labelText: 'Eメール',
               ),
             ),
+            // パスワード入力
             TextField(
               controller: _passwordController,
               decoration: const InputDecoration(labelText: 'パスワード'),
@@ -108,7 +99,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (context) => const RegisterScreen()),
+                    builder: (context) => const RegisterScreen(),
+                  ),
                 );
               },
               child: const Text(
