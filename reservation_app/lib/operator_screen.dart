@@ -1,6 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+// 画像選択 + Firebase Storage
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+// kIsWeb 判定
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' show File; // モバイルで使う
+import 'dart:typed_data'; // Webで使う Uint8List
 
 class OperatorScreen extends StatefulWidget {
   const OperatorScreen({Key? key}) : super(key: key);
@@ -97,15 +104,16 @@ class _OperatorScreenState extends State<OperatorScreen> {
               ),
             ],
           ),
-          Expanded(
-            child: _pages[_selectedIndex],
-          ),
+          Expanded(child: _pages[_selectedIndex]),
         ],
       ),
     );
   }
 }
 
+/* ----------------------------------------------------------------
+   ホーム画面
+---------------------------------------------------------------- */
 class HomeScreen extends StatelessWidget {
   const HomeScreen({Key? key}) : super(key: key);
 
@@ -180,7 +188,7 @@ class HomeScreen extends StatelessWidget {
 }
 
 /* ----------------------------------------------------------------
-   施設カレンダー画面
+   施設カレンダー画面 (メイン)
 ---------------------------------------------------------------- */
 class FacilityCalendarScreen extends StatefulWidget {
   const FacilityCalendarScreen({Key? key}) : super(key: key);
@@ -193,14 +201,18 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   List<Map<String, dynamic>> _facilities = [];
   String? _selectedFacilityId;
 
-  // 選択中の月 (年・月)
   DateTime _selectedMonth = DateTime.now();
-
-  // 日付ごとの予約リスト
-  // day -> [ { "interval": "08:00 ~ 12:00", "roomNumber": "101", "userName": "山田太郎" }, ... ]
   Map<int, List<Map<String, String>>> _reservationsByDay = {};
 
   bool _isLoading = false;
+
+  // image_picker 用
+  final ImagePicker _picker = ImagePicker();
+
+  // Webの場合はバイトデータ(Uint8List)
+  Uint8List? _webImage;
+  // モバイルの場合はXFile
+  XFile? _mobileImageFile;
 
   @override
   void initState() {
@@ -208,7 +220,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     _fetchFacilities();
   }
 
-  // 1) 施設一覧を取得
+  // 施設一覧を取得
   Future<void> _fetchFacilities() async {
     final snapshot =
         await FirebaseFirestore.instance.collection('facilities').get();
@@ -218,19 +230,17 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
     setState(() {
       _facilities = facilityList;
-      if (facilityList.isNotEmpty) {
-        // デフォルトで最初の施設を選択
+      if (_facilities.isNotEmpty) {
         _selectedFacilityId = facilityList.first['id'];
       }
     });
 
-    // 施設が決まったので、最初の予約データを取得
     if (_selectedFacilityId != null) {
       await _fetchReservationsForMonth();
     }
   }
 
-  // 2) 指定した月 & 選択中の施設の予約情報を取得
+  // 選択施設 & 選択月 の予約を取得
   Future<void> _fetchReservationsForMonth() async {
     if (_selectedFacilityId == null) return;
 
@@ -255,7 +265,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
     final Map<int, List<Map<String, String>>> dayMap = {};
 
-    for (var doc in querySnapshot.docs) {
+    for (final doc in querySnapshot.docs) {
       final data = doc.data();
       final ts = data['date'] as Timestamp;
       final dt = ts.toDate();
@@ -269,7 +279,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       final end = times.last;
       final interval = '$start ~ $end';
 
-      // 予約者のuserIdから「部屋番号」「名前」を取得
+      // 予約ユーザー情報
       final userId = data['userId'] ?? '';
       String roomNumber = '不明';
       String userName = '不明';
@@ -279,7 +289,6 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
             .collection('users')
             .doc(userId)
             .get();
-
         if (userDoc.exists) {
           final userData = userDoc.data()!;
           roomNumber = userData['roomNumber']?.toString() ?? '不明';
@@ -296,7 +305,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       dayMap[day] = (dayMap[day] ?? [])..add(reservationInfo);
     }
 
-    // ソート (開始時刻順)
+    // 時刻順にソート
     dayMap.forEach((day, list) {
       list.sort((a, b) => a["interval"]!.compareTo(b["interval"]!));
     });
@@ -307,28 +316,25 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     });
   }
 
+  // 前月へ
   void _previousMonth() async {
     setState(() {
-      _selectedMonth = DateTime(
-        _selectedMonth.year,
-        _selectedMonth.month - 1,
-        1,
-      );
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month - 1, 1);
     });
     await _fetchReservationsForMonth();
   }
 
+  // 翌月へ
   void _nextMonth() async {
     setState(() {
-      _selectedMonth = DateTime(
-        _selectedMonth.year,
-        _selectedMonth.month + 1,
-        1,
-      );
+      _selectedMonth =
+          DateTime(_selectedMonth.year, _selectedMonth.month + 1, 1);
     });
     await _fetchReservationsForMonth();
   }
 
+  // 施設変更
   void _onFacilityChanged(String? newFacilityId) async {
     setState(() {
       _selectedFacilityId = newFacilityId;
@@ -336,30 +342,35 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     await _fetchReservationsForMonth();
   }
 
+  // ★ 新規施設追加ボタン押下時のハンドラ
+  // ★ 新規施設追加ボタン押下
+  void _addNewFacility() {
+    _showAddFacilityDialog();
+  }
+
+  // カレンダー編集
   void _editCalendar() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('カレンダー編集ボタンが押されました')),
     );
   }
 
+  // 予定のエクスポート
   void _exportSchedule() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('予定のエクスポートボタンが押されました')),
     );
   }
 
-  /// 日付セルをタップした時 → ダイアログ表示
+  // 日付セルタップ -> その日の予約をダイアログ表示
   void _showDayReservationsDialog(int day) {
     final reservations = _reservationsByDay[day] ?? [];
-    // ここで「◯年◯月◯日」の文字列を組み立てる
     final year = _selectedMonth.year;
     final month = _selectedMonth.month.toString().padLeft(2, '0');
     final dayStr = day.toString().padLeft(2, '0');
-
     final titleText = '$year年$month月$dayStr日の予約';
 
     if (reservations.isEmpty) {
-      // 予約なし
       showDialog(
         context: context,
         builder: (context) {
@@ -378,7 +389,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       return;
     }
 
-    // 予約あり → ダイアログで一覧表示
+    // 予約あり
     showDialog(
       context: context,
       builder: (context) {
@@ -392,9 +403,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                 final roomNumber = r['roomNumber'] ?? '不明';
                 final userName = r['userName'] ?? '不明';
 
-                // ▼ 各予約をCardで囲んで立体的に
                 return Card(
-                  elevation: 3, // 立体感
+                  elevation: 3,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -544,8 +554,217 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     );
   }
 
+  // 画像アップロード付き 施設追加ダイアログ (Web/モバイル対応)
+  // 画像アップロード付き 施設追加ダイアログ (Web/モバイル対応)
+  void _showAddFacilityDialog() {
+    final nameController = TextEditingController();
+    final priceController = TextEditingController();
+
+    Uint8List? webImage;
+    XFile? mobileImageFile;
+    String? imageUrl;
+    String? imageExtension; // 拡張子保持
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setStateDialog) {
+            // 画像選択
+            Future<void> _pickImage() async {
+              final XFile? file =
+                  await _picker.pickImage(source: ImageSource.gallery);
+              if (file == null) return;
+
+              String? ext;
+
+              if (kIsWeb) {
+                // Web: 拡張子は取れないため、mimeType で判定
+                final mime = file.mimeType ?? '';
+                if (mime == 'image/png') {
+                  ext = 'png';
+                } else if (mime == 'image/jpeg') {
+                  ext = 'jpg';
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('JPEGまたはPNGの画像を選択してください。')),
+                  );
+                  return;
+                }
+
+                final bytes = await file.readAsBytes();
+                setStateDialog(() {
+                  webImage = bytes;
+                  imageExtension = ext;
+                });
+              } else {
+                // モバイル: path から拡張子取得
+                ext = file.path.split('.').last.toLowerCase().trim();
+                if (ext != 'jpg' && ext != 'jpeg' && ext != 'png') {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('JPEGまたはPNGの画像を選択してください。')),
+                  );
+                  return;
+                }
+
+                setStateDialog(() {
+                  mobileImageFile = file;
+                  imageExtension = ext == 'jpeg' ? 'jpg' : ext;
+                });
+              }
+            }
+
+            // Firebase Storage にアップロード (Web/モバイル分岐)
+            Future<String> _uploadImageToStorage() async {
+              if (imageExtension == null) {
+                throw Exception('画像の拡張子が不明です');
+              }
+
+              final fileName =
+                  'facilities/${DateTime.now().millisecondsSinceEpoch}.$imageExtension';
+              final ref = FirebaseStorage.instance.ref().child(fileName);
+
+              final metadata = SettableMetadata(
+                contentType:
+                    imageExtension == 'png' ? 'image/png' : 'image/jpeg',
+              );
+
+              if (kIsWeb && webImage != null) {
+                await ref.putData(webImage!, metadata);
+              } else if (!kIsWeb && mobileImageFile != null) {
+                await ref.putFile(File(mobileImageFile!.path), metadata);
+              }
+
+              return await ref.getDownloadURL();
+            }
+
+            // Firestoreに登録
+            Future<void> _saveFacility() async {
+              try {
+                final name = nameController.text.trim();
+                final priceText = priceController.text.trim();
+
+                if (name.isEmpty || priceText.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('施設名と価格を入力してください。')),
+                  );
+                  return;
+                }
+
+                if (!RegExp(r'^[0-9]+$').hasMatch(priceText)) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('価格は半角数字で入力してください。')),
+                  );
+                  return;
+                }
+
+                if (imageExtension == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('画像を選択してください。')),
+                  );
+                  return;
+                }
+
+                final user = FirebaseAuth.instance.currentUser;
+                if (user == null) return;
+
+                final userDoc = await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(user.uid)
+                    .get();
+                final apartmentId = userDoc['apartment'] ?? 'unknown_apartment';
+
+                imageUrl = await _uploadImageToStorage();
+
+                await FirebaseFirestore.instance.collection('facilities').add({
+                  'apartment_id': apartmentId,
+                  'image': imageUrl,
+                  'name': name,
+                  'price': priceText,
+                });
+
+                Navigator.pop(context);
+                _fetchFacilities(); // 再読み込み
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('施設を登録しました。')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('エラーが発生しました: $e')),
+                );
+              }
+            }
+
+            // プレビューWidget
+            Widget _buildPreview() {
+              if (kIsWeb && webImage != null) {
+                return Image.memory(
+                  webImage!,
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                );
+              } else if (!kIsWeb && mobileImageFile != null) {
+                return Image.file(
+                  File(mobileImageFile!.path),
+                  width: 100,
+                  height: 100,
+                  fit: BoxFit.cover,
+                );
+              }
+              return const SizedBox.shrink();
+            }
+
+            return AlertDialog(
+              title: const Text('新規施設追加'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton(
+                      onPressed: _pickImage,
+                      child: const Text('画像を選択 (JPEG/PNG)'),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildPreview(),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(labelText: '施設名'),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: priceController,
+                      decoration: const InputDecoration(labelText: '価格'),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: _saveFacility,
+                  child: const Text('登録'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final buttonStyle = ElevatedButton.styleFrom(
+      fixedSize: const Size(160, 40),
+    );
+
     final year = _selectedMonth.year;
     final month = _selectedMonth.month.toString().padLeft(2, '0');
 
@@ -553,10 +772,12 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          // 上部: 施設名プルダウン ＋ カレンダー編集ボタン
+          // 上部 (施設プルダウン + 新規施設追加 & カレンダー編集)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 左側: 施設プルダウン
               Row(
                 children: [
                   const Text(
@@ -597,15 +818,29 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                     ),
                 ],
               ),
-              ElevatedButton(
-                onPressed: _editCalendar,
-                child: const Text('カレンダー編集'),
+
+              // 右側: 新規施設追加ボタン & カレンダー編集ボタン
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  ElevatedButton(
+                    style: buttonStyle,
+                    onPressed: _addNewFacility,
+                    child: const Text('新規施設追加'),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    style: buttonStyle,
+                    onPressed: _editCalendar,
+                    child: const Text('カレンダー編集'),
+                  ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 16),
 
-          // 月切り替えボタン
+          // 月切り替え
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -622,7 +857,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
           ),
           const SizedBox(height: 16),
 
-          // カレンダー表示部分
+          // カレンダー表示
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -634,7 +869,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
           ),
           const SizedBox(height: 16),
 
-          // 予定のエクスポートボタン
+          // 予定のエクスポート
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton(
@@ -649,7 +884,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 }
 
 /* ----------------------------------------------------------------
-   アカウント管理画面 (既存)
+   アカウント管理画面
 ---------------------------------------------------------------- */
 class AccountScreen extends StatelessWidget {
   const AccountScreen({Key? key}) : super(key: key);
