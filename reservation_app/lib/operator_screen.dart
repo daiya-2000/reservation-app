@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show File; // モバイルで使う
 import 'dart:typed_data'; // Webで使う Uint8List
+import 'package:intl/intl.dart';
 
 class OperatorScreen extends StatefulWidget {
   const OperatorScreen({Key? key}) : super(key: key);
@@ -80,17 +81,17 @@ class _OperatorScreenState extends State<OperatorScreen> {
                   ),
                 ),
               ),
-              NavigationRailDestination(
-                icon: Icon(Icons.note),
-                label: Text(
-                  '申請・アンケート',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
+              // NavigationRailDestination(
+              //   icon: Icon(Icons.note),
+              //   label: Text(
+              //     '申請・アンケート',
+              //     style: TextStyle(
+              //       fontSize: 14,
+              //       color: Colors.white,
+              //       fontWeight: FontWeight.bold,
+              //     ),
+              //   ),
+              // ),
               NavigationRailDestination(
                 icon: Icon(Icons.account_circle),
                 label: Text(
@@ -127,14 +128,14 @@ class HomeScreen extends StatelessWidget {
           _buildDashboardCard(
             title: '施設予約状況表示',
             buttonText: 'もっと見る',
-            onPressed: () {},
+            onPressed: () => _showTodayAndTomorrowReservations(context),
           ),
-          const SizedBox(height: 16),
-          _buildDashboardCard(
-            title: '住人の新規申請表示',
-            buttonText: 'もっと見る',
-            onPressed: () {},
-          ),
+          // const SizedBox(height: 16),
+          // _buildDashboardCard(
+          //   title: '住人の新規申請表示',
+          //   buttonText: 'もっと見る',
+          //   onPressed: () {},
+          // ),
         ],
       ),
     );
@@ -185,6 +186,113 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+void _showTodayAndTomorrowReservations(BuildContext context) async {
+  final today = DateTime.now();
+  final tomorrow = today.add(const Duration(days: 1));
+  final List<DateTime> targetDates = [today, tomorrow];
+  final Map<String, List<Map<String, String>>> reservationsByDate = {};
+
+  for (final date in targetDates) {
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    final snapshot = await FirebaseFirestore.instance
+        .collection('reservations')
+        .where('date', isEqualTo: Timestamp.fromDate(dateOnly))
+        .get();
+
+    final List<Map<String, String>> reservations = [];
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final times = List<String>.from(data['times'] ?? []);
+      if (times.isEmpty) continue;
+      times.sort();
+
+      final userId = data['userId'] ?? '';
+      String roomNumber = '不明';
+      String userName = '不明';
+
+      if (userId.isNotEmpty) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .get();
+        if (userDoc.exists) {
+          final userData = userDoc.data()!;
+          roomNumber = userData['roomNumber']?.toString() ?? '不明';
+          userName = userData['name']?.toString() ?? '不明';
+        }
+      }
+
+      reservations.add({
+        'interval': '${times.first} ~ ${_addThirtyMinutes(times.first)}',
+        'roomNumber': roomNumber,
+        'userName': userName,
+      });
+    }
+
+    reservationsByDate[DateFormat('yyyy/MM/dd').format(dateOnly)] =
+        reservations;
+  }
+
+  showDialog(
+    context: context,
+    builder: (ctx) {
+      return AlertDialog(
+        title: const Text('本日と翌日の予約状況'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: reservationsByDate.entries.map((entry) {
+              final dateStr = entry.key;
+              final reservations = entry.value;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(dateStr,
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    if (reservations.isEmpty)
+                      const Text('予約なし')
+                    else
+                      ...reservations.map((r) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2.0),
+                            child: Text(
+                                '${r['interval']} - ${r['roomNumber']}号室 ${r['userName']}'),
+                          )),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('閉じる'),
+          )
+        ],
+      );
+    },
+  );
+}
+
+String _addThirtyMinutes(String time) {
+  final parts = time.split(':');
+  int hour = int.parse(parts[0]);
+  int minute = int.parse(parts[1]);
+
+  minute += 30;
+  if (minute >= 60) {
+    hour += 1;
+    minute -= 60;
+  }
+
+  return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 }
 
 /* ----------------------------------------------------------------

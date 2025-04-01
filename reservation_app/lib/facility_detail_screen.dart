@@ -46,19 +46,13 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
           .where('date', isEqualTo: Timestamp.fromDate(dayOnly))
           .get();
 
-      final reservedTimes = querySnapshot.docs
-          .map((doc) => List<String>.from(doc['times'] ?? []))
-          .expand((times) => times)
-          .toList();
-
       final dailyStatus = <String, bool>{};
-      for (int index = 0; index < 48; index++) {
-        final hour = index ~/ 2;
-        final minute = (index % 2) * 30;
-        final timeStr =
-            '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
-
-        dailyStatus[timeStr] = reservedTimes.contains(timeStr);
+      for (final doc in querySnapshot.docs) {
+        final List<String> times = List<String>.from(doc['times'] ?? []);
+        if (times.isNotEmpty) {
+          final startTime = times.first;
+          dailyStatus[startTime] = true;
+        }
       }
 
       newWeeklyStatus[dayKey] = dailyStatus;
@@ -424,6 +418,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     int endMinute = int.parse(endParts[1]);
 
     List<String> result = [];
+
     int currentHour = startHour;
     int currentMinute = startMinute;
 
@@ -432,17 +427,23 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
           "${currentHour.toString().padLeft(2, '0')}:${currentMinute.toString().padLeft(2, '0')}";
       result.add(timeStr);
 
+      // ループ終了条件：endTimeに到達したらそのスロットを追加して終了
+      if (currentHour == endHour && currentMinute == endMinute) {
+        break;
+      }
+
       currentMinute += 30;
       if (currentMinute >= 60) {
         currentHour++;
-        currentMinute -= 60;
+        currentMinute = 0;
       }
-      // 終了時刻を超えたらループを抜ける
-      if (currentHour > endHour ||
-          (currentHour == endHour && currentMinute > endMinute)) {
+
+      // 念のため（無限ループ防止）
+      if (currentHour > 23 || (currentHour == 23 && currentMinute > 30)) {
         break;
       }
     }
+
     return result;
   }
 
