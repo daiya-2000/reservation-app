@@ -9,6 +9,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' show File; // モバイルで使う
 import 'dart:typed_data'; // Webで使う Uint8List
 import 'package:intl/intl.dart';
+import 'package:csv/csv.dart';
+import 'package:universal_html/html.dart' as html;
+import 'dart:convert';
 
 class OperatorScreen extends StatefulWidget {
   const OperatorScreen({Key? key}) : super(key: key);
@@ -530,10 +533,119 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   }
 
   // 予定のエクスポート
-  void _exportSchedule() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('予定のエクスポートボタンが押されました')),
+  void _exportSchedule() async {
+    if (_selectedFacilityId == null) return;
+
+    final selectedFacility = _facilities.firstWhere(
+      (f) => f['id'] == _selectedFacilityId,
+      orElse: () => {},
     );
+
+    final facilityName = selectedFacility['name'] ?? '不明施設';
+    final price = int.tryParse(selectedFacility['price'] ?? '0') ?? 0;
+    final unitValue = selectedFacility['unitTime']?['value'] ?? 1;
+    final unit = selectedFacility['unitTime']?['unit'] ?? 'h';
+
+    final unitInMinutes = unit == 'h'
+        ? unitValue * 60
+        : unit == 'day'
+            ? unitValue * 1440
+            : unitValue;
+    final pricePer30Min = (price / (unitInMinutes / 30)).round();
+
+    final year = _selectedMonth.year;
+    final month = _selectedMonth.month;
+
+    final firstDay = DateTime(year, month, 1);
+    final lastDay =
+        DateTime(year, month + 1, 1).subtract(const Duration(days: 1));
+
+    final query = await FirebaseFirestore.instance
+        .collection('reservations')
+        .where('facilityId', isEqualTo: _selectedFacilityId)
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(firstDay))
+        .where('date', isLessThanOrEqualTo: Timestamp.fromDate(lastDay))
+        .get();
+
+    final List<List<dynamic>> detailRows = [];
+    final Map<String, Map<String, dynamic>> userMap = {};
+
+    for (var doc in query.docs) {
+      final data = doc.data();
+      final userId = data['userId'] ?? '';
+      final times = List<String>.from(data['times'] ?? []);
+      if (times.length < 2) continue; // 1枠未満はスキップ
+
+      final slotCount = times.length - 1; // ← 修正済み
+      final totalMinutes = slotCount * 30;
+      final amount = (pricePer30Min * slotCount).round();
+
+      final timeStr = totalMinutes % 60 == 0
+          ? '${totalMinutes ~/ 60}時間'
+          : '${totalMinutes ~/ 60}時間${totalMinutes % 60}分';
+      final date = (data['date'] as Timestamp).toDate();
+      final dateStr =
+          '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+
+      if (!userMap.containsKey(userId)) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .get();
+        userMap[userId] = {
+          'name': userDoc['name'] ?? '不明',
+          'roomNumber': userDoc['roomNumber'] ?? '不明',
+          'total': 0,
+        };
+      }
+
+      final user = userMap[userId]!;
+      user['total'] += amount;
+
+      detailRows.add([
+        user['roomNumber'],
+        user['name'],
+        dateStr,
+        facilityName,
+        timeStr,
+        amount,
+      ]);
+    }
+
+    // sheet1: 明細
+    final csv1 = <List<dynamic>>[
+      ['部屋番号', '名前', '利用日付', '利用施設名', '利用時間', '支払い金額'],
+      ...detailRows
+    ];
+
+    // sheet2: 合計
+    final csv2 = <List<dynamic>>[
+      ['部屋番号', '名前', '月の支払い合計'],
+      ...userMap.entries.map((e) => [
+            e.value['roomNumber'],
+            e.value['name'],
+            e.value['total'],
+          ])
+    ];
+
+    // 結合（空行で区切って1ファイルに）
+    final csvCombined = [
+      ...csv1,
+      [],
+      [],
+      ...csv2,
+    ];
+
+    final csvText = const ListToCsvConverter().convert(csvCombined);
+
+    final bytes = utf8.encode(csvText);
+    final blob = html.Blob([bytes]);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.AnchorElement(href: url)
+      ..setAttribute(
+          'download', '予約支払明細_${year}_${month.toString().padLeft(2, '0')}.csv')
+      ..click();
+    html.Url.revokeObjectUrl(url);
   }
 
   // 日付セルタップ -> その日の予約をダイアログ表示
@@ -733,6 +845,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   void _showAddFacilityDialog() {
     final nameController = TextEditingController();
     final priceController = TextEditingController();
+    final durationValueController = TextEditingController();
+    String selectedUnit = 'min'; // 初期値: 分
 
     Uint8List? webImage;
     XFile? mobileImageFile;
@@ -817,17 +931,21 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
               try {
                 final name = nameController.text.trim();
                 final priceText = priceController.text.trim();
+                final durationValueText = durationValueController.text.trim();
 
-                if (name.isEmpty || priceText.isEmpty) {
+                if (name.isEmpty ||
+                    priceText.isEmpty ||
+                    durationValueText.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('施設名と価格を入力してください。')),
+                    const SnackBar(content: Text('全ての項目を入力してください。')),
                   );
                   return;
                 }
 
-                if (!RegExp(r'^[0-9]+$').hasMatch(priceText)) {
+                if (!RegExp(r'^[0-9]+$').hasMatch(priceText) ||
+                    !RegExp(r'^[0-9]+$').hasMatch(durationValueText)) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('価格は半角数字で入力してください。')),
+                    const SnackBar(content: Text('価格と時間単位の数値は半角数字で入力してください。')),
                   );
                   return;
                 }
@@ -855,10 +973,14 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                   'image': imageUrl,
                   'name': name,
                   'price': priceText,
+                  'unitTime': {
+                    'value': int.parse(durationValueText),
+                    'unit': selectedUnit,
+                  },
                 });
 
                 Navigator.pop(context);
-                _fetchFacilities(); // 再読み込み
+                _fetchFacilities();
 
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('施設を登録しました。')),
@@ -870,22 +992,13 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
               }
             }
 
-            // プレビューWidget
             Widget _buildPreview() {
               if (kIsWeb && webImage != null) {
-                return Image.memory(
-                  webImage!,
-                  width: 100,
-                  height: 100,
-                  fit: BoxFit.cover,
-                );
+                return Image.memory(webImage!,
+                    width: 100, height: 100, fit: BoxFit.cover);
               } else if (!kIsWeb && mobileImageFile != null) {
-                return Image.file(
-                  File(mobileImageFile!.path),
-                  width: 100,
-                  height: 100,
-                  fit: BoxFit.cover,
-                );
+                return Image.file(File(mobileImageFile!.path),
+                    width: 100, height: 100, fit: BoxFit.cover);
               }
               return const SizedBox.shrink();
             }
@@ -912,6 +1025,33 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                       controller: priceController,
                       decoration: const InputDecoration(labelText: '価格'),
                       keyboardType: TextInputType.number,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: durationValueController,
+                            decoration:
+                                const InputDecoration(labelText: '単位時間'),
+                            keyboardType: TextInputType.number,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        DropdownButton<String>(
+                          value: selectedUnit,
+                          items: const [
+                            DropdownMenuItem(value: 'min', child: Text('分')),
+                            DropdownMenuItem(value: 'h', child: Text('時間')),
+                            DropdownMenuItem(value: 'day', child: Text('日')),
+                          ],
+                          onChanged: (value) {
+                            setStateDialog(() {
+                              selectedUnit = value!;
+                            });
+                          },
+                        ),
+                      ],
                     ),
                   ],
                 ),

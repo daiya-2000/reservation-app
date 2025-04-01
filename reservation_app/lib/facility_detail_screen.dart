@@ -129,10 +129,20 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
           // 利用金額
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Text(
-              '利用金額: ${widget.facility['price']}円',
-              style: const TextStyle(fontSize: 18),
-              textAlign: TextAlign.center,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Text(
+                  "利用金額",
+                  style: TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _buildFormattedPriceText(widget.facility),
+                  style: const TextStyle(fontSize: 18),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 24),
@@ -168,6 +178,37 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
         ],
       ),
     );
+  }
+
+  String _buildFormattedPriceText(Map<String, dynamic> facility) {
+    final price = facility['price']?.toString() ?? '不明';
+
+    if (facility['unitTime'] != null &&
+        facility['unitTime']['value'] != null &&
+        facility['unitTime']['unit'] != null) {
+      final unitValue = facility['unitTime']['value'];
+      final unitKey = facility['unitTime']['unit'];
+
+      String unitLabel;
+      switch (unitKey) {
+        case 'm':
+          unitLabel = '分';
+          break;
+        case 'h':
+          unitLabel = '時間';
+          break;
+        case 'd':
+          unitLabel = '日';
+          break;
+        default:
+          unitLabel = '';
+      }
+
+      return '${unitValue}${unitLabel}　${price}円';
+    }
+
+    // unitTimeがない場合は元のまま
+    return '利用金額: ${price}円';
   }
 
   Widget _buildHeaderTable(BuildContext context) {
