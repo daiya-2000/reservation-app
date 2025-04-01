@@ -24,7 +24,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
     HomeScreen(),
     const FacilityCalendarScreen(),
     const PlaceholderScreen(title: '掲示板'),
-    const PlaceholderScreen(title: '申請・アンケート'),
+    // const PlaceholderScreen(title: '申請・アンケート'),
     const AccountScreen(),
   ];
 
@@ -454,6 +454,72 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   // ★ 新規施設追加ボタン押下
   void _addNewFacility() {
     _showAddFacilityDialog();
+  }
+
+  void _deleteFacility() {
+    if (_selectedFacilityId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('削除する施設が選択されていません。')),
+      );
+      return;
+    }
+
+    final selectedFacility = _facilities.firstWhere(
+      (facility) => facility['id'] == _selectedFacilityId,
+      orElse: () => {},
+    );
+
+    final facilityName = selectedFacility['name'] ?? '名称不明';
+
+    // 外側の context を保持
+    final parentContext = context;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('施設削除の確認'),
+          content: Text('「$facilityName」を削除しますか？この操作は元に戻せません。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext); // ダイアログを閉じる
+
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('facilities')
+                      .doc(_selectedFacilityId)
+                      .delete();
+
+                  await _fetchFacilities();
+
+                  Future.delayed(Duration.zero, () {
+                    if (mounted) {
+                      ScaffoldMessenger.of(parentContext).showSnackBar(
+                        const SnackBar(content: Text('施設を削除しました。')),
+                      );
+                    }
+                  });
+                } catch (e) {
+                  Future.delayed(Duration.zero, () {
+                    if (mounted) {
+                      ScaffoldMessenger.of(parentContext).showSnackBar(
+                        SnackBar(content: Text('削除に失敗しました: $e')),
+                      );
+                    }
+                  });
+                }
+              },
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // カレンダー編集
@@ -935,6 +1001,12 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                     style: buttonStyle,
                     onPressed: _addNewFacility,
                     child: const Text('新規施設追加'),
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    style: buttonStyle,
+                    onPressed: _deleteFacility,
+                    child: const Text('施設削除'),
                   ),
                   const SizedBox(height: 8),
                   ElevatedButton(
