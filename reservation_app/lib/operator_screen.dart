@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 // 画像選択 + Firebase Storage
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 // kIsWeb 判定
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -12,6 +13,7 @@ import 'package:intl/intl.dart';
 import 'package:csv/csv.dart';
 import 'package:universal_html/html.dart' as html;
 import 'dart:convert';
+import 'package:url_launcher/url_launcher.dart';
 
 class OperatorScreen extends StatefulWidget {
   const OperatorScreen({Key? key}) : super(key: key);
@@ -26,7 +28,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
   final List<Widget> _pages = [
     HomeScreen(),
     const FacilityCalendarScreen(),
-    const PlaceholderScreen(title: '掲示板'),
+    const BulletinBoardScreen(),
     // const PlaceholderScreen(title: '申請・アンケート'),
     const AccountScreen(),
   ];
@@ -1086,13 +1088,25 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          // 上部 (施設プルダウン + 新規施設追加 & カレンダー編集)
+          // 施設カレンダータイトル（中央）
+          const Padding(
+            padding: EdgeInsets.only(bottom: 16.0),
+            child: Center(
+              child: Text(
+                '施設カレンダー',
+                style: TextStyle(
+                  fontSize: 24,
+                ),
+              ),
+            ),
+          ),
+
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 左側: 施設プルダウン
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
                     '施設名: ',
@@ -1133,7 +1147,10 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                 ],
               ),
 
-              // 右側: 新規施設追加ボタン & カレンダー編集ボタン
+              // ←★ 追加：左と右を分けるためのスペーサー
+              const Spacer(),
+
+              // 右側: ボタン群
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -1158,6 +1175,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 16),
 
           // 月切り替え
@@ -1196,6 +1214,400 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
               onPressed: _exportSchedule,
               child: const Text('予定のエクスポート'),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ----------------------------------------------------------------
+   掲示板画面
+---------------------------------------------------------------- */
+class BulletinBoardScreen extends StatefulWidget {
+  const BulletinBoardScreen({Key? key}) : super(key: key);
+
+  @override
+  State<BulletinBoardScreen> createState() => _BulletinBoardScreenState();
+}
+
+class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
+  List<Map<String, dynamic>> _posts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPosts();
+  }
+
+  Future<void> _fetchPosts() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('bulletin_posts')
+        .orderBy('createdAt', descending: true)
+        .get();
+
+    final postList = snapshot.docs.map((doc) {
+      final data = doc.data();
+      return {
+        'id': doc.id, // ← 追加
+        'title': data['title'] ?? '無題',
+        'body': data['body'] ?? '',
+        'pdfUrl': data['pdfUrl'],
+        'createdAt': data['createdAt'],
+      };
+    }).toList();
+
+    setState(() {
+      _posts = postList;
+    });
+  }
+
+  void _showCreatePostDialog() {
+    final titleController = TextEditingController();
+    final bodyController = TextEditingController();
+
+    // ここで定義（null許容型）
+    PlatformFile? selectedPdfFile;
+    String? selectedPdfName;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) => AlertDialog(
+            title: const Text('掲示板を作成'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    decoration: const InputDecoration(labelText: 'タイトル'),
+                  ),
+                  TextField(
+                    controller: bodyController,
+                    decoration: const InputDecoration(labelText: '本文'),
+                    maxLines: 5,
+                  ),
+                  const SizedBox(height: 8),
+                  ElevatedButton(
+                    onPressed: () async {
+                      try {
+                        final result = await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: ['pdf'],
+                          withData: true,
+                        );
+
+                        if (result != null && result.files.isNotEmpty) {
+                          final file = result.files.first;
+
+                          // setStateで状態更新（ダイアログ内のUI再描画）
+                          setModalState(() {
+                            selectedPdfFile = file;
+                            selectedPdfName = file.name;
+                          });
+                        }
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('ファイル選択に失敗しました: $e')),
+                        );
+                      }
+                    },
+                    child: const Text('詳細PDFアップロードボタン'),
+                  ),
+                  if (selectedPdfName != null) Text('ファイル名：$selectedPdfName'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final title = titleController.text.trim();
+                  final body = bodyController.text.trim();
+                  if (title.isEmpty || body.isEmpty) return;
+
+                  String? pdfUrl;
+
+                  if (selectedPdfFile != null &&
+                      selectedPdfFile!.bytes != null) {
+                    final storageRef = FirebaseStorage.instance
+                        .ref()
+                        .child('bulletins/${selectedPdfFile!.name}');
+                    final uploadTask = await storageRef.putData(
+                      selectedPdfFile!.bytes!,
+                      SettableMetadata(contentType: 'application/pdf'),
+                    );
+                    pdfUrl = await storageRef.getDownloadURL();
+                  }
+
+                  await FirebaseFirestore.instance
+                      .collection('bulletin_posts')
+                      .add({
+                    'title': title,
+                    'body': body,
+                    'pdfUrl': pdfUrl,
+                    'createdAt': Timestamp.now(),
+                  });
+
+                  // ダイアログを閉じる前にスナックバーを表示
+                  Navigator.pop(context);
+
+                  // スナックバー表示
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('投稿が完了しました')),
+                  );
+
+                  _fetchPosts();
+                },
+                child: const Text('作成ボタン'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPostCard(Map<String, dynamic> post) {
+    final ts = post['createdAt'] as Timestamp;
+    final dt = ts.toDate();
+    final formatted = DateFormat('yyyy/MM/dd HH:mm').format(dt);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click, // ← カーソルを手の形に
+      child: GestureDetector(
+        onTap: () => _showPostDetailDialog(post),
+        child: Card(
+          elevation: 3,
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.white,
+            ),
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(post['title'],
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text(formatted,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(height: 12),
+                Text(post['body']),
+                if (post['pdfUrl'] != null) ...[
+                  const SizedBox(height: 12),
+                  const Text('PDFあり', style: TextStyle(color: Colors.blue)),
+                ]
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showPostDetailDialog(Map<String, dynamic> post) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(post['title']),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(post['body']),
+            const SizedBox(height: 16),
+            if (post['pdfUrl'] != null)
+              TextButton(
+                onPressed: () async {
+                  final url = Uri.parse(post['pdfUrl']);
+                  if (await canLaunchUrl(url)) {
+                    await launchUrl(url);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('PDFを開けませんでした')),
+                    );
+                  }
+                },
+                child: const Text('PDFを表示'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showEditPostDialog(post);
+            },
+            child: const Text('編集'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await FirebaseFirestore.instance
+                  .collection('bulletin_posts')
+                  .doc(post['id'])
+                  .delete();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('投稿を削除しました')),
+              );
+              _fetchPosts();
+            },
+            child: const Text('削除', style: TextStyle(color: Colors.red)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditPostDialog(Map<String, dynamic> post) {
+    final titleController = TextEditingController(text: post['title']);
+    final bodyController = TextEditingController(text: post['body']);
+
+    PlatformFile? selectedPdfFile;
+    String? selectedPdfName;
+    String? originalPdfUrl = post['pdfUrl'];
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: const Text('掲示板を編集'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'タイトル'),
+                ),
+                TextField(
+                  controller: bodyController,
+                  decoration: const InputDecoration(labelText: '本文'),
+                  maxLines: 5,
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: () async {
+                    try {
+                      final result = await FilePicker.platform.pickFiles(
+                        type: FileType.custom,
+                        allowedExtensions: ['pdf'],
+                        withData: true,
+                      );
+                      if (result != null && result.files.isNotEmpty) {
+                        setModalState(() {
+                          selectedPdfFile = result.files.first;
+                          selectedPdfName = selectedPdfFile!.name;
+                        });
+                      }
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('PDF選択に失敗しました: $e')),
+                      );
+                    }
+                  },
+                  child: const Text('PDFを再アップロード'),
+                ),
+                if (selectedPdfName != null) Text('ファイル名：$selectedPdfName'),
+                if (selectedPdfName == null && originalPdfUrl != null)
+                  const Text('現在のPDFが登録されています'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final updatedTitle = titleController.text.trim();
+                final updatedBody = bodyController.text.trim();
+                if (updatedTitle.isEmpty || updatedBody.isEmpty) return;
+
+                String? updatedPdfUrl = originalPdfUrl;
+
+                if (selectedPdfFile != null && selectedPdfFile!.bytes != null) {
+                  final storageRef = FirebaseStorage.instance
+                      .ref()
+                      .child('bulletins/${selectedPdfFile!.name}');
+                  await storageRef.putData(
+                    selectedPdfFile!.bytes!,
+                    SettableMetadata(contentType: 'application/pdf'),
+                  );
+                  updatedPdfUrl = await storageRef.getDownloadURL();
+                }
+
+                await FirebaseFirestore.instance
+                    .collection('bulletin_posts')
+                    .doc(post['id'])
+                    .update({
+                  'title': updatedTitle,
+                  'body': updatedBody,
+                  'pdfUrl': updatedPdfUrl,
+                });
+
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('投稿を更新しました')),
+                );
+                _fetchPosts();
+              },
+              child: const Text('更新'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Center(
+            child: Text(
+              '掲示板',
+              style: TextStyle(fontSize: 24),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: _showCreatePostDialog,
+              child: const Text('新規作成ボタン'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _posts.isEmpty
+                ? const Center(child: Text('まだ掲示はありません'))
+                : ListView.builder(
+                    itemCount: _posts.length,
+                    itemBuilder: (context, index) {
+                      return _buildPostCard(_posts[index]);
+                    },
+                  ),
           ),
         ],
       ),
@@ -1354,7 +1766,12 @@ class AccountScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('住人アカウント'),
+        title: const Text(
+          '住人アカウント',
+          style: TextStyle(
+            fontSize: 24,
+          ),
+        ),
         actions: [
           Padding(
             padding:

@@ -434,12 +434,12 @@ class _HomeTabState extends State<HomeTab> {
             ),
 
             // セクションカード：要申請の項目
-            _buildSectionCard(
-              title: '要申請の項目',
-              onTap: () {
-                // 要申請ページへ遷移
-              },
-            ),
+            // _buildSectionCard(
+            //   title: '要申請の項目',
+            //   onTap: () {
+            //     // 要申請ページへ遷移
+            //   },
+            // ),
 
             // セクションカード：現在の予約内容
             _buildSectionCard(

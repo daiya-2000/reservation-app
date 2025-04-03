@@ -49,9 +49,9 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       final dailyStatus = <String, bool>{};
       for (final doc in querySnapshot.docs) {
         final List<String> times = List<String>.from(doc['times'] ?? []);
-        if (times.isNotEmpty) {
-          final startTime = times.first;
-          dailyStatus[startTime] = true;
+        // 最後の時間（endTime）は表示には含めない
+        for (int i = 0; i < times.length - 1; i++) {
+          dailyStatus[times[i]] = true;
         }
       }
 
