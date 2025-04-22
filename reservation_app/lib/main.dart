@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'
-    show kIsWeb; // Web環境を確認するためにkIsWebをインポート
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'firebase_options.dart'; // firebase_options.dart をインポート
-import 'login_screen.dart'; // ログイン画面をインポート
-import 'profile_screen.dart'; // プロフィール作成画面をインポート
-import 'main_screen.dart'; // メイン画面をインポート
-import 'admin_screen.dart'; // 管理者画面をインポート
-import 'operator_screen.dart'; // 管理人用画面をインポート
+import 'firebase_options.dart';
+
+import 'splash_screen.dart'; // ✅ 新たに追加
+import 'login_screen.dart';
+import 'profile_screen.dart';
+import 'main_screen.dart';
+import 'admin_screen.dart';
+import 'operator_screen.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // Flutterバインディングを初期化
+  WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform, // Firebaseを正しく初期化
+    options: DefaultFirebaseOptions.currentPlatform,
   );
   runApp(const MyApp());
 }
@@ -25,25 +26,26 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'マンション予約管理アプリ',
-      initialRoute: '/login', // 初期ルートを設定
+      initialRoute: '/splash', // ✅ スプラッシュを初期ルートに
       routes: {
+        '/splash': (context) => const SplashScreen(), // ✅ スプラッシュルートを追加
         '/login': (context) => const LoginScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/main': (context) => const MainScreen(),
         '/admin_dashboard': (context) => const AdminScreen(),
         '/operator_dashboard': (context) => const OperatorScreen(),
       },
-      locale: const Locale('ja'), // 日本語ロケールを設定
+      locale: const Locale('ja'),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('ja', ''), // 日本語対応
+        Locale('ja', ''),
       ],
       theme: ThemeData(
-        primarySwatch: Colors.blue, // テーマカラーを青に設定
+        primarySwatch: Colors.blue,
       ),
     );
   }

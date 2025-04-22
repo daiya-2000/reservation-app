@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'register_screen.dart';
-import 'main_screen.dart'; // 住人用メイン画面
-import 'admin_screen.dart'; // 管理者画面
-import 'operator_screen.dart'; // 管理人用画面
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -14,16 +11,28 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController(); // メールアドレス用
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final user = _auth.currentUser;
+    if (user != null) {
+      await _navigateToRoleBasedScreen(user);
+    }
+  }
 
   Future<void> _login() async {
     try {
       final email = _emailController.text.trim();
       final password = _passwordController.text.trim();
 
-      // Firebase Authenticationでログイン
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -34,34 +43,37 @@ class _LoginScreenState extends State<LoginScreen> {
         throw Exception('ユーザー情報の取得に失敗しました。');
       }
 
-      // Firestoreからユーザーのroleを取得
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-
-      if (!userDoc.exists) {
-        throw Exception('ユーザーデータが存在しません。');
-      }
-
-      final role = userDoc.data()?['role'] as String?;
-      if (role == null) {
-        throw Exception('ユーザーの権限が設定されていません。');
-      }
-
-      // roleに応じて画面を切り替え
-      if (role == 'CompanyAdmin') {
-        Navigator.pushReplacementNamed(context, '/admin_dashboard');
-      } else if (role == 'BuildingAdmin') {
-        Navigator.pushReplacementNamed(context, '/operator_dashboard');
-      } else {
-        Navigator.pushReplacementNamed(context, '/main');
-      }
+      await _navigateToRoleBasedScreen(user);
     } catch (e) {
-      // エラーメッセージを表示
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ログイン失敗: $e')),
       );
+    }
+  }
+
+  Future<void> _navigateToRoleBasedScreen(User user) async {
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    if (!userDoc.exists) {
+      throw Exception('ユーザーデータが存在しません。');
+    }
+
+    final role = userDoc.data()?['role'] as String?;
+    if (role == null) {
+      throw Exception('ユーザーの権限が設定されていません。');
+    }
+
+    if (!mounted) return;
+
+    if (role == 'CompanyAdmin') {
+      Navigator.pushReplacementNamed(context, '/admin_dashboard');
+    } else if (role == 'BuildingAdmin') {
+      Navigator.pushReplacementNamed(context, '/operator_dashboard');
+    } else {
+      Navigator.pushReplacementNamed(context, '/main');
     }
   }
 
@@ -74,14 +86,10 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // メールアドレス入力
             TextField(
               controller: _emailController,
-              decoration: const InputDecoration(
-                labelText: 'Eメール',
-              ),
+              decoration: const InputDecoration(labelText: 'Eメール'),
             ),
-            // パスワード入力
             TextField(
               controller: _passwordController,
               decoration: const InputDecoration(labelText: 'パスワード'),
@@ -95,7 +103,6 @@ class _LoginScreenState extends State<LoginScreen> {
             const SizedBox(height: 20),
             GestureDetector(
               onTap: () {
-                // アカウント作成画面へ遷移
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -105,9 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
               },
               child: const Text(
                 'アカウント作成はこちら',
-                style: TextStyle(
-                  color: Colors.blue,
-                ),
+                style: TextStyle(color: Colors.blue),
               ),
             ),
           ],

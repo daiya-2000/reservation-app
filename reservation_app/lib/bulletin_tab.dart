@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:reservation_app/pdf_view_screen.dart';
+import 'package:intl/intl.dart';
 
 class BulletinTab extends StatefulWidget {
   const BulletinTab({Key? key}) : super(key: key);
@@ -82,16 +83,31 @@ class _BulletinTabState extends State<BulletinTab> {
   }
 
   Widget _buildPostCard(Map<String, dynamic> post) {
+    final timestamp = post['createdAt'] as Timestamp?;
+    final date = timestamp?.toDate();
+    final formattedDate =
+        date != null ? DateFormat('yyyy/MM/dd HH:mm').format(date) : '不明';
+
     return Card(
       elevation: 2,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ListTile(
         title: Text(post['title']),
-        subtitle: Text(
-          post['body'],
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              post['body'],
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '投稿日: $formattedDate',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => _showPostDetailDialog(post),
