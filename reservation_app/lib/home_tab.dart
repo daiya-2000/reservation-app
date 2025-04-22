@@ -391,6 +391,151 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+  Future<void> _showAddFamilyDialog(BuildContext context) async {
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('家族アカウント作成'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(labelText: '氏名'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: emailController,
+                  decoration: const InputDecoration(labelText: 'メールアドレス'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: passwordController,
+                  decoration: const InputDecoration(labelText: 'パスワード'),
+                  obscureText: true,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                final email = emailController.text.trim();
+                final password = passwordController.text.trim();
+
+                if (name.isEmpty || email.isEmpty || password.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('すべての項目を入力してください')),
+                  );
+                  return;
+                }
+
+                try {
+                  // 管理者としてユーザーを作成するには一度ログアウトが必要なので別の方法として cloud functions などが理想ですが
+                  // 今回は createUserWithEmailAndPassword → currentUser を保持しておく方法で対応
+
+                  final originalUser = FirebaseAuth.instance.currentUser;
+
+                  final userCredential = await FirebaseAuth.instance
+                      .createUserWithEmailAndPassword(
+                          email: email, password: password);
+                  final newUser = userCredential.user;
+
+                  // Firestoreに登録
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(newUser?.uid)
+                      .set({
+                    'name': name,
+                    'email': email,
+                    'role': _userInfo?['role'] ?? 'Resident',
+                    'roomNumber': _userInfo?['roomNumber'],
+                    'apartment': _userInfo?['apartment'],
+                  });
+
+                  // 元のユーザーに再ログイン
+                  final originalEmail = originalUser?.email;
+                  final reauthPasswordController = TextEditingController();
+
+                  Navigator.pop(context); // ダイアログを閉じる
+
+                  await showDialog(
+                    context: context,
+                    builder: (context) {
+                      return AlertDialog(
+                        title: const Text('再ログインが必要です'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('元のユーザーに戻るためパスワードを入力してください'),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: reauthPasswordController,
+                              obscureText: true,
+                              decoration:
+                                  const InputDecoration(labelText: 'パスワード'),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('キャンセル'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () async {
+                              try {
+                                final credential = EmailAuthProvider.credential(
+                                  email: originalEmail!,
+                                  password:
+                                      reauthPasswordController.text.trim(),
+                                );
+                                await FirebaseAuth.instance
+                                    .signInWithCredential(credential);
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text('家族アカウントを作成しました')),
+                                );
+                              } catch (e) {
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('再ログインエラー: $e')),
+                                );
+                              }
+                            },
+                            child: const Text('ログインする'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                } catch (e) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('作成に失敗しました: $e')),
+                  );
+                }
+              },
+              child: const Text('作成'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // ユーザー情報やマンション名がまだ読み込まれていない場合はローディング
@@ -477,6 +622,11 @@ class _HomeTabState extends State<HomeTab> {
               onTap: () {
                 _resetPassword(context);
               },
+            ),
+            // 家族アカウント作成
+            _buildSectionCard(
+              title: '家族アカウント作成',
+              onTap: () => _showAddFamilyDialog(context),
             ),
           ],
         ),
