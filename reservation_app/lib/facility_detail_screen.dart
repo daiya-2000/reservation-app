@@ -96,13 +96,13 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     final canShowPreviousWeek = selectedDay.isAfter(today);
 
     return Padding(
-      padding: const EdgeInsets.only(top: 16.0, bottom: 16.0),
+      padding: const EdgeInsets.only(top: 0.0, bottom: 16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // 施設画像
           ClipRRect(
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(0),
             child: widget.facility['image'] != null
                 ? Image.network(
                     widget.facility['image'],
