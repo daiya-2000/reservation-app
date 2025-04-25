@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:reservation_app/bulletin_tab.dart';
+import 'package:reservation_app/pdf_view_screen.dart';
+import 'package:intl/intl.dart';
 
 class HomeTab extends StatefulWidget {
   const HomeTab({Key? key}) : super(key: key);
@@ -16,6 +19,8 @@ class _HomeTabState extends State<HomeTab> {
   Map<String, dynamic>? _userInfo;
   String? _apartmentName;
   late StreamSubscription<User?> _authSubscription;
+
+  List<Map<String, dynamic>> _latestPosts = [];
 
   @override
   void initState() {
@@ -32,6 +37,7 @@ class _HomeTabState extends State<HomeTab> {
 
     _currentUser = FirebaseAuth.instance.currentUser;
     _fetchUserData();
+    _fetchLatestPosts();
   }
 
   @override
@@ -70,6 +76,88 @@ class _HomeTabState extends State<HomeTab> {
     } catch (e) {
       debugPrint('Error fetching user data: $e');
     }
+  }
+
+  Future<void> _fetchLatestPosts() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('bulletin_posts')
+          .orderBy('createdAt', descending: true)
+          .limit(5)
+          .get();
+
+      final posts = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'title': data['title'] ?? '無題',
+          'body': data['body'] ?? '',
+          'pdfUrl': data['pdfUrl'],
+          'createdAt': data['createdAt'],
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _latestPosts = posts;
+        });
+      }
+    } catch (e) {
+      debugPrint('掲示の取得に失敗しました: $e');
+    }
+  }
+
+  void _showPostDetailDialog(Map<String, dynamic> post) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(post['title']),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(post['body']),
+              const SizedBox(height: 16),
+              if (post['pdfUrl'] != null)
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PdfViewerScreen(url: post['pdfUrl']),
+                      ),
+                    );
+                  },
+                  child: const Text('PDFを表示'),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLatestPostCard(Map<String, dynamic> post) {
+    final timestamp = post['createdAt'] as Timestamp?;
+    final date = timestamp?.toDate();
+    final formattedDate =
+        date != null ? DateFormat('yyyy/MM/dd HH:mm').format(date) : '不明';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4.0),
+      child: ListTile(
+        title: Text(post['title']),
+        subtitle: Text('投稿日: $formattedDate'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _showPostDetailDialog(post),
+      ),
+    );
   }
 
   // プロフィール修正ダイアログ
@@ -599,6 +687,12 @@ class _HomeTabState extends State<HomeTab> {
               title: '新しい掲示',
               onTap: () {
                 // 新しい掲示ページへ遷移
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const BulletinTab(),
+                  ),
+                );
               },
             ),
 
