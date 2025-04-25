@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class HomeTab extends StatefulWidget {
   const HomeTab({Key? key}) : super(key: key);
@@ -391,10 +392,38 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
+  Future<void> createFamilyAccount({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final callable =
+        FirebaseFunctions.instance.httpsCallable('createFamilyAccount');
+
+    try {
+      final result = await callable.call({
+        'name': name,
+        'email': email,
+        'password': password,
+      });
+
+      if (result.data['success'] == true) {
+        debugPrint('✅ 家族アカウントを作成しました');
+      } else {
+        debugPrint('⚠️ 作成は失敗しました');
+      }
+    } on FirebaseFunctionsException catch (e) {
+      debugPrint('❌ Cloud Functions エラー: ${e.message}');
+      rethrow;
+    }
+  }
+
   Future<void> _showAddFamilyDialog(BuildContext context) async {
     final nameController = TextEditingController();
     final emailController = TextEditingController();
+    final confirmEmailController = TextEditingController();
     final passwordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
 
     showDialog(
       context: context,
@@ -416,9 +445,20 @@ class _HomeTabState extends State<HomeTab> {
                 ),
                 const SizedBox(height: 8),
                 TextField(
+                  controller: confirmEmailController,
+                  decoration: const InputDecoration(labelText: 'メールアドレス（確認用）'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
                   controller: passwordController,
-                  decoration: const InputDecoration(labelText: 'パスワード'),
                   obscureText: true,
+                  decoration: const InputDecoration(labelText: 'パスワード'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: confirmPasswordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'パスワード（確認用）'),
                 ),
               ],
             ),
@@ -432,99 +472,83 @@ class _HomeTabState extends State<HomeTab> {
               onPressed: () async {
                 final name = nameController.text.trim();
                 final email = emailController.text.trim();
+                final confirmEmail = confirmEmailController.text.trim();
                 final password = passwordController.text.trim();
+                final confirmPassword = confirmPasswordController.text.trim();
 
-                if (name.isEmpty || email.isEmpty || password.isEmpty) {
+                if (name.isEmpty ||
+                    email.isEmpty ||
+                    confirmEmail.isEmpty ||
+                    password.isEmpty ||
+                    confirmPassword.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('すべての項目を入力してください')),
                   );
                   return;
                 }
 
+                if (email != confirmEmail) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('メールアドレスが一致しません')),
+                  );
+                  return;
+                }
+
+                if (password != confirmPassword) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('パスワードが一致しません')),
+                  );
+                  return;
+                }
+
+                // 🔒 認証済みかチェック
+                if (_currentUser == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('ログインしてからご利用ください')),
+                  );
+                  return;
+                }
+
                 try {
-                  // 管理者としてユーザーを作成するには一度ログアウトが必要なので別の方法として cloud functions などが理想ですが
-                  // 今回は createUserWithEmailAndPassword → currentUser を保持しておく方法で対応
-
-                  final originalUser = FirebaseAuth.instance.currentUser;
-
-                  final userCredential = await FirebaseAuth.instance
-                      .createUserWithEmailAndPassword(
-                          email: email, password: password);
-                  final newUser = userCredential.user;
-
-                  // Firestoreに登録
-                  await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(newUser?.uid)
-                      .set({
+                  final callable = FirebaseFunctions.instance
+                      .httpsCallable('createFamilyAccount');
+                  final Map<String, dynamic> data = {
                     'name': name,
                     'email': email,
-                    'role': _userInfo?['role'] ?? 'Resident',
+                    'password': password,
+                    'role': _userInfo?['role'],
                     'roomNumber': _userInfo?['roomNumber'],
                     'apartment': _userInfo?['apartment'],
-                  });
+                  };
 
-                  // 元のユーザーに再ログイン
-                  final originalEmail = originalUser?.email;
-                  final reauthPasswordController = TextEditingController();
+                  data.removeWhere((key, value) => value == null); // null除外
 
-                  Navigator.pop(context); // ダイアログを閉じる
+                  final result = await callable.call(data);
 
-                  await showDialog(
-                    context: context,
-                    builder: (context) {
-                      return AlertDialog(
-                        title: const Text('再ログインが必要です'),
-                        content: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('元のユーザーに戻るためパスワードを入力してください'),
-                            const SizedBox(height: 8),
-                            TextField(
-                              controller: reauthPasswordController,
-                              obscureText: true,
-                              decoration:
-                                  const InputDecoration(labelText: 'パスワード'),
-                            ),
-                          ],
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('キャンセル'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () async {
-                              try {
-                                final credential = EmailAuthProvider.credential(
-                                  email: originalEmail!,
-                                  password:
-                                      reauthPasswordController.text.trim(),
-                                );
-                                await FirebaseAuth.instance
-                                    .signInWithCredential(credential);
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('家族アカウントを作成しました')),
-                                );
-                              } catch (e) {
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('再ログインエラー: $e')),
-                                );
-                              }
-                            },
-                            child: const Text('ログインする'),
-                          ),
-                        ],
-                      );
-                    },
+                  Navigator.pop(context);
+
+                  if (result.data['success'] == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('家族アカウントを作成しました')),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(
+                              'アカウント作成に失敗しました: ${result.data['error'] ?? '不明なエラー'}')),
+                    );
+                  }
+                } on FirebaseFunctionsException catch (e) {
+                  Navigator.pop(context);
+                  debugPrint('❌ Cloud Functions エラー: ${e.message}');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('エラー: ${e.message}')),
                   );
                 } catch (e) {
                   Navigator.pop(context);
+                  debugPrint('❌ その他のエラー: $e');
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('作成に失敗しました: $e')),
+                    SnackBar(content: Text('予期せぬエラーが発生しました: $e')),
                   );
                 }
               },
