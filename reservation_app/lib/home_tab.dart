@@ -679,34 +679,71 @@ class _HomeTabState extends State<HomeTab> {
 }
 
 /// 現在の予約内容ページ
-class CurrentReservationsPage extends StatelessWidget {
+class CurrentReservationsPage extends StatefulWidget {
   const CurrentReservationsPage({Key? key}) : super(key: key);
 
-  Future<List<Map<String, dynamic>>> _getReservations() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return [];
+  @override
+  State<CurrentReservationsPage> createState() =>
+      _CurrentReservationsPageState();
+}
 
-    // 今日の 0:00 を表す DateTime
+class _CurrentReservationsPageState extends State<CurrentReservationsPage> {
+  User? user;
+  late Future<List<Map<String, dynamic>>> reservationsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    user = FirebaseAuth.instance.currentUser;
+    reservationsFuture = _getReservations(user!);
+  }
+
+  Future<void> _refreshReservations() async {
+    setState(() {
+      reservationsFuture = _getReservations(user!);
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> _getReservations(User user) async {
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+    final userData = userDoc.data();
+    if (userData == null) return [];
+
+    final apartment = userData['apartment'];
+    final roomNumber = userData['roomNumber'];
+    if (apartment == null || roomNumber == null) return [];
+
     final now = DateTime.now();
     final todayMidnight = DateTime(now.year, now.month, now.day);
-
-    // Firestore 用 Timestamp
     final todayTimestamp = Timestamp.fromDate(todayMidnight);
 
-    // 「userId == user.uid」かつ「date >= 今日の 0:00」だけ取得
+    final familyUsers = await FirebaseFirestore.instance
+        .collection('users')
+        .where('apartment', isEqualTo: apartment)
+        .where('roomNumber', isEqualTo: roomNumber)
+        .get();
+
+    final familyUserIds = familyUsers.docs.map((doc) => doc.id).toList();
+    final userMap = {
+      for (var doc in familyUsers.docs) doc.id: doc.data()['name']
+    };
+
     final reservationsSnapshot = await FirebaseFirestore.instance
         .collection('reservations')
-        .where('userId', isEqualTo: user.uid)
+        .where('userId', whereIn: familyUserIds)
         .where('date', isGreaterThanOrEqualTo: todayTimestamp)
         .get();
 
     List<Map<String, dynamic>> reservations = [];
 
-    for (final reservationDoc in reservationsSnapshot.docs) {
-      final data = reservationDoc.data();
+    for (final doc in reservationsSnapshot.docs) {
+      final data = doc.data();
       final facilityId = data['facilityId'];
+      final reservationUserId = data['userId'];
 
-      // 施設情報を取得
       final facilitySnapshot = await FirebaseFirestore.instance
           .collection('facilities')
           .doc(facilityId)
@@ -716,31 +753,24 @@ class CurrentReservationsPage extends StatelessWidget {
         final facilityData = facilitySnapshot.data();
 
         reservations.add({
-          'id': reservationDoc.id,
+          'id': doc.id,
+          'userId': reservationUserId,
+          'userName': userMap[reservationUserId] ?? '不明なユーザー',
           'facilityName': facilityData?['name'] ?? '不明な施設',
           'imageUrl': facilityData?['image'],
-          // times は [ '09:00', '09:30', ... ] のように昇順に並んでいる想定
           'startTime': data['times']?.first,
           'endTime': data['times']?.last,
-          'date': data['date'], // Timestamp
+          'date': data['date'],
         });
       }
     }
 
-    // ▼ ここで「日付 → 開始時刻」の順でソートする
     reservations.sort((a, b) {
       final aDateTime = (a['date'] as Timestamp).toDate();
       final bDateTime = (b['date'] as Timestamp).toDate();
-      // 1) 日付を比較
       final dateCompare = aDateTime.compareTo(bDateTime);
-      if (dateCompare != 0) {
-        return dateCompare;
-      }
-
-      // 2) 同じ日付の場合は startTime (文字列 "HH:mm") を比較
-      final aStart = a['startTime'] as String;
-      final bStart = b['startTime'] as String;
-      return aStart.compareTo(bStart);
+      if (dateCompare != 0) return dateCompare;
+      return (a['startTime'] as String).compareTo(b['startTime'] as String);
     });
 
     return reservations;
@@ -773,6 +803,7 @@ class CurrentReservationsPage extends StatelessWidget {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('予約をキャンセルしました。')),
                 );
+                await _refreshReservations(); // 即時反映
               },
               child: const Text('キャンセルする'),
             ),
@@ -784,90 +815,73 @@ class CurrentReservationsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (user == null) {
+      return const Center(child: Text('ログインが必要です'));
+    }
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('現在の予約内容'),
-      ),
+      appBar: AppBar(title: const Text('現在の予約内容')),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _getReservations(),
+        future: reservationsFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError ||
-              snapshot.data == null ||
-              snapshot.data!.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text('予約がありません。'));
           }
 
           final reservations = snapshot.data!;
 
-          return ListView.builder(
-            itemCount: reservations.length,
-            itemBuilder: (context, index) {
-              final reservation = reservations[index];
-              final timestamp = reservation['date'] as Timestamp;
-              final reservation_date = timestamp.toDate();
-              final year = reservation_date.year;
-              final month = reservation_date.month.toString().padLeft(2, '0');
-              final day = reservation_date.day.toString().padLeft(2, '0');
+          return RefreshIndicator(
+            onRefresh: _refreshReservations,
+            child: ListView.builder(
+              itemCount: reservations.length,
+              itemBuilder: (context, index) {
+                final reservation = reservations[index];
+                final reservationDate =
+                    (reservation['date'] as Timestamp).toDate();
+                final formattedDate =
+                    '${reservationDate.year}/${reservationDate.month.toString().padLeft(2, '0')}/${reservationDate.day.toString().padLeft(2, '0')}';
 
-              final formattedDate = '$year/$month/$day';
-
-              return GestureDetector(
-                onTap: () {
-                  _showCancelDialog(
-                    context,
-                    reservation['id'],
-                    reservation['facilityName'],
-                  );
-                },
-                child: Card(
+                return Card(
                   margin: const EdgeInsets.symmetric(
-                    vertical: 12.0,
-                    horizontal: 16.0,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
+                      vertical: 12.0, horizontal: 16.0),
+                  child: ListTile(
+                    leading: reservation['imageUrl'] != null
+                        ? Image.network(
+                            reservation['imageUrl'],
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                          )
+                        : const Icon(Icons.image, size: 80),
+                    title: Text(
+                      reservation['facilityName'],
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        reservation['imageUrl'] != null
-                            ? Image.network(
-                                reservation['imageUrl'],
-                                width: 80,
-                                height: 80,
-                                fit: BoxFit.cover,
-                              )
-                            : const Icon(Icons.image, size: 80),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                reservation['facilityName'],
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '$formattedDate\n'
-                                '${reservation['startTime']} - ${reservation['endTime']}',
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios),
+                        if (reservation['userId'] != user!.uid)
+                          Text('予約者: ${reservation['userName']}'),
+                        Text(
+                            '$formattedDate\n${reservation['startTime']} - ${reservation['endTime']}'),
                       ],
                     ),
+                    trailing: reservation['userId'] == user!.uid
+                        ? IconButton(
+                            icon: const Icon(Icons.cancel),
+                            onPressed: () {
+                              _showCancelDialog(context, reservation['id'],
+                                  reservation['facilityName']);
+                            },
+                          )
+                        : null,
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           );
         },
       ),
