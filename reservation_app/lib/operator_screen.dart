@@ -313,6 +313,36 @@ class FacilityCalendarScreen extends StatefulWidget {
 class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   List<Map<String, dynamic>> _facilities = [];
   String? _selectedFacilityId;
+  Set<String> _unavailableDays = {};
+  Map<int, List<String>> _alreadyUnavailableTimesByDay = {};
+
+  Future<void> _fetchUnavailableTimesForDay(int day) async {
+    if (_selectedFacilityId == null) return;
+
+    final dateStr =
+        '${_selectedMonth.year.toString().padLeft(4, '0')}-${_selectedMonth.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+
+    final docSnapshot = await FirebaseFirestore.instance
+        .collection('facilities')
+        .doc(_selectedFacilityId)
+        .collection('unavailable_dates')
+        .doc(dateStr)
+        .get();
+
+    if (docSnapshot.exists) {
+      final data = docSnapshot.data();
+      final List<dynamic> times = data?['unavailableTimes'] ?? [];
+      _alreadyUnavailableTimesByDay[day] = List<String>.from(times);
+    } else {
+      _alreadyUnavailableTimesByDay[day] = [];
+    }
+  }
+
+  final List<String> kDefaultTimeSlots = [
+    for (int h = 0; h < 24; h++)
+      for (int m = 0; m < 60; m += 30)
+        '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}'
+  ];
 
   DateTime _selectedMonth = DateTime.now();
   Map<int, List<Map<String, String>>> _reservationsByDay = {};
@@ -427,6 +457,19 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       _reservationsByDay = dayMap;
       _isLoading = false;
     });
+
+    final unavailableSnapshot = await FirebaseFirestore.instance
+        .collection('facilities')
+        .doc(_selectedFacilityId)
+        .collection('unavailable_dates')
+        .get();
+
+    setState(() {
+      _unavailableDays = unavailableSnapshot.docs
+          .map((doc) => doc.id) // yyyy-MM-dd そのまま
+          .toSet();
+      _alreadyUnavailableTimesByDay.clear(); // ←★ 追加！
+    });
   }
 
   // 前月へ
@@ -529,8 +572,195 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
   // カレンダー編集
   void _editCalendar() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('カレンダー編集ボタンが押されました')),
+    if (_selectedFacilityId == null) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final year = _selectedMonth.year;
+        final month = _selectedMonth.month;
+        final daysInMonth = DateUtils.getDaysInMonth(year, month);
+
+        int selectedDay = 1;
+        bool allDay = true;
+        String startTime = '00:00';
+        String endTime = '23:30';
+
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('予約不可日・時間を設定'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 日付選択
+                    Wrap(
+                      spacing: 8,
+                      children: List.generate(daysInMonth, (index) {
+                        final day = index + 1;
+                        return ChoiceChip(
+                          label: Text('$day日'),
+                          selected: selectedDay == day,
+                          onSelected: (selected) async {
+                            if (selected) {
+                              setStateDialog(() {
+                                selectedDay = day;
+                              });
+                              await _fetchUnavailableTimesForDay(day);
+                              setStateDialog(() {});
+                            }
+                          },
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    // 予約不可設定方法
+                    Row(
+                      children: [
+                        Radio<bool>(
+                          value: true,
+                          groupValue: allDay,
+                          onChanged: (value) {
+                            setStateDialog(() => allDay = value!);
+                          },
+                        ),
+                        const Text('一日予約不可'),
+                        Radio<bool>(
+                          value: false,
+                          groupValue: allDay,
+                          onChanged: (value) {
+                            setStateDialog(() => allDay = value!);
+                          },
+                        ),
+                        const Text('特定時間だけ予約不可'),
+                      ],
+                    ),
+                    if (!allDay) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Text('開始時間:'),
+                          const SizedBox(width: 8),
+                          DropdownButton<String>(
+                            value: startTime,
+                            items: kDefaultTimeSlots
+                                .where((time) =>
+                                    !(_alreadyUnavailableTimesByDay[selectedDay]
+                                            ?.contains(time) ??
+                                        false))
+                                .map((time) => DropdownMenuItem(
+                                    value: time, child: Text(time)))
+                                .toList(),
+                            onChanged: (value) {
+                              setStateDialog(() => startTime = value!);
+                            },
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          const Text('終了時間:'),
+                          const SizedBox(width: 8),
+                          DropdownButton<String>(
+                            value: endTime,
+                            items: kDefaultTimeSlots
+                                .where((time) =>
+                                    !(_alreadyUnavailableTimesByDay[selectedDay]
+                                            ?.contains(time) ??
+                                        false))
+                                .map((time) => DropdownMenuItem(
+                                    value: time, child: Text(time)))
+                                .toList(),
+                            onChanged: (value) {
+                              setStateDialog(() => endTime = value!);
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final parentContext = context;
+                    final batch = FirebaseFirestore.instance.batch();
+                    final unavailableRef = FirebaseFirestore.instance
+                        .collection('facilities')
+                        .doc(_selectedFacilityId)
+                        .collection('unavailable_dates');
+
+                    final dateStr =
+                        '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${selectedDay.toString().padLeft(2, '0')}';
+
+                    if (allDay) {
+                      batch.set(unavailableRef.doc(dateStr), {
+                        'allDay': true,
+                        'unavailableTimes': [],
+                        'createdAt': Timestamp.now(),
+                      });
+                    } else {
+                      final startIdx = kDefaultTimeSlots.indexOf(startTime);
+                      final endIdx = kDefaultTimeSlots.indexOf(endTime);
+
+                      if (startIdx >= endIdx) {
+                        ScaffoldMessenger.of(parentContext).showSnackBar(
+                          const SnackBar(content: Text('開始時間は終了時間より前にしてください')),
+                        );
+                        return;
+                      }
+
+                      final newUnavailableTimes =
+                          kDefaultTimeSlots.sublist(startIdx, endIdx);
+
+                      final existingTimes = Set<String>.from(
+                          _alreadyUnavailableTimesByDay[selectedDay] ?? []);
+                      final newTimesSet = Set<String>.from(newUnavailableTimes);
+                      final overlap = existingTimes.intersection(newTimesSet);
+
+                      if (overlap.isNotEmpty) {
+                        ScaffoldMessenger.of(parentContext).showSnackBar(
+                          const SnackBar(content: Text('すでに予約不可の時間帯と重複しています')),
+                        );
+                        return;
+                      }
+
+                      batch.set(unavailableRef.doc(dateStr), {
+                        'allDay': false,
+                        'unavailableTimes': [
+                          ...(_alreadyUnavailableTimesByDay[selectedDay] ?? []),
+                          ...newUnavailableTimes,
+                        ],
+                        'createdAt': Timestamp.now(),
+                      });
+
+                      _alreadyUnavailableTimesByDay[selectedDay] = [
+                        ...(_alreadyUnavailableTimesByDay[selectedDay] ?? []),
+                        ...newUnavailableTimes,
+                      ];
+                    }
+
+                    await batch.commit();
+                    Navigator.pop(parentContext);
+                    ScaffoldMessenger.of(parentContext).showSnackBar(
+                      const SnackBar(content: Text('予約不可設定を保存しました')),
+                    );
+                    await _fetchReservationsForMonth();
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -651,18 +881,29 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   }
 
   // 日付セルタップ -> その日の予約をダイアログ表示
-  void _showDayReservationsDialog(int day) {
-    final reservations = _reservationsByDay[day] ?? [];
+  void _showDayReservationsDialog(int day) async {
     final year = _selectedMonth.year;
     final month = _selectedMonth.month.toString().padLeft(2, '0');
     final dayStr = day.toString().padLeft(2, '0');
     final titleText = '$year年$month月$dayStr日の予約';
 
-    if (reservations.isEmpty) {
+    final dateStr = '$year-$month-$dayStr'; // FirestoreのドキュメントID
+    final unavailableDoc = await FirebaseFirestore.instance
+        .collection('facilities')
+        .doc(_selectedFacilityId)
+        .collection('unavailable_dates')
+        .doc(dateStr)
+        .get();
+
+    final reservations = _reservationsByDay[day] ?? [];
+
+    if (reservations.isEmpty && !unavailableDoc.exists) {
       showDialog(
         context: context,
         builder: (context) {
           return AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Text(titleText),
             content: const Text('予約はありません。'),
             actions: [
@@ -677,41 +918,182 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       return;
     }
 
-    // 予約あり
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Text(titleText),
           content: SingleChildScrollView(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
-              children: reservations.map((r) {
-                final interval = r['interval'] ?? '不明';
-                final roomNumber = r['roomNumber'] ?? '不明';
-                final userName = r['userName'] ?? '不明';
+              children: [
+                if (unavailableDoc.exists) ...[
+                  const Text(
+                    '【予約不可】',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  if (unavailableDoc.data()?['allDay'] == true)
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => _confirmDeleteUnavailable(
+                            dateStr, '00:00', '24:00'),
+                        child: Card(
+                          color: Colors.purple[50],
+                          child: Container(
+                            width: 250,
+                            padding: const EdgeInsets.all(8.0),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '1日予約不可',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'クリックで予約不可取消',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Column(
+                      children: () {
+                        final times = List<String>.from(
+                            unavailableDoc.data()?['unavailableTimes'] ?? []);
+                        List<List<String>> grouped = [];
+                        List<String> currentGroup = [];
 
-                return Card(
-                  elevation: 3,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('部屋番号: $roomNumber'),
-                        const SizedBox(height: 4),
-                        Text('名前: $userName'),
-                        const SizedBox(height: 4),
-                        Text('時間: $interval'),
-                      ],
+                        for (int i = 0; i < times.length; i++) {
+                          final current = times[i];
+                          if (currentGroup.isEmpty) {
+                            currentGroup.add(current);
+                          } else {
+                            final last = currentGroup.last;
+                            if (_addThirtyMinutes(last) == current) {
+                              currentGroup.add(current);
+                            } else {
+                              grouped.add(currentGroup);
+                              currentGroup = [current];
+                            }
+                          }
+                        }
+                        if (currentGroup.isNotEmpty) {
+                          grouped.add(currentGroup);
+                        }
+
+                        return grouped.map((group) {
+                          final start = group.first;
+                          final end = _addThirtyMinutes(group.last);
+                          return MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: () => _confirmDeleteUnavailable(
+                                  dateStr, start, end),
+                              child: Card(
+                                color: Colors.purple[50], // 色を統一
+                                child: Container(
+                                  width: 250, // ★追加
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '$start ~ $end',
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      const Text(
+                                        'クリックで予約不可取消',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.blue,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList();
+                      }(),
                     ),
+                  const SizedBox(height: 16),
+                ],
+                if (reservations.isNotEmpty) ...[
+                  const Text(
+                    '【予約】',
+                    style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                );
-              }).toList(),
+                  const SizedBox(height: 8),
+                  ...reservations.map((r) {
+                    final interval = r['interval'] ?? '不明';
+                    final roomNumber = r['roomNumber'] ?? '不明';
+                    final userName = r['userName'] ?? '不明';
+                    return MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () => _confirmDeleteReservation(dateStr, r),
+                        child: Card(
+                          elevation: 2,
+                          color: Colors.purple[50], // 色を統一
+                          child: Container(
+                            width: 250, // ★ここを追加（お好みで 260〜300 でもOK）
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  interval,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$roomNumber号室 $userName',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'クリックで予約取消',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ],
             ),
           ),
           actions: [
@@ -723,6 +1105,99 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
         );
       },
     );
+  }
+
+  void _confirmDeleteUnavailable(
+      String dateStr, String start, String end) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('予約不可を削除しますか？'),
+        content: Text('時間: $start ~ $end'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('削除')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      Navigator.of(context).pop();
+      await _deleteUnavailableTime(dateStr, start, end);
+      await _fetchReservationsForMonth();
+    }
+  }
+
+  Future<void> _deleteUnavailableTime(
+      String dateStr, String start, String end) async {
+    final docRef = FirebaseFirestore.instance
+        .collection('facilities')
+        .doc(_selectedFacilityId)
+        .collection('unavailable_dates')
+        .doc(dateStr);
+
+    final doc = await docRef.get();
+    if (!doc.exists) return;
+
+    final data = doc.data()!;
+    final times = List<String>.from(data['unavailableTimes'] ?? []);
+    final toRemove = kDefaultTimeSlots.sublist(
+        kDefaultTimeSlots.indexOf(start), kDefaultTimeSlots.indexOf(end));
+    final updatedTimes = times.where((t) => !toRemove.contains(t)).toList();
+
+    if (updatedTimes.isEmpty) {
+      await docRef.delete();
+    } else {
+      await docRef.update({'unavailableTimes': updatedTimes});
+    }
+  }
+
+  void _confirmDeleteReservation(
+      String dateStr, Map<String, String> reservation) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('予約を削除しますか？'),
+        content: Text('時間: ${reservation['interval']}'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('削除')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _deleteReservation(dateStr, reservation);
+      await _fetchReservationsForMonth();
+    }
+  }
+
+  Future<void> _deleteReservation(
+      String dateStr, Map<String, String> reservation) async {
+    final ts = Timestamp.fromDate(DateTime.parse(dateStr));
+    final query = await FirebaseFirestore.instance
+        .collection('reservations')
+        .where('facilityId', isEqualTo: _selectedFacilityId)
+        .where('date', isEqualTo: ts)
+        .get();
+
+    for (final doc in query.docs) {
+      final times = List<String>.from(doc['times'] ?? []);
+      if (times.isEmpty) continue;
+      final interval = '${times.first} ~ ${_addThirtyMinutes(times.last)}';
+      if (interval == reservation['interval']) {
+        await doc.reference.delete();
+        break;
+      }
+    }
   }
 
   Widget _buildCalendar() {
@@ -744,6 +1219,9 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     // 実際の日付セル
     for (int day = 1; day <= daysInMonth; day++) {
       final dayReservations = _reservationsByDay[day] ?? [];
+      final dateStr = DateFormat('yyyy-MM-dd')
+          .format(DateTime(_selectedMonth.year, _selectedMonth.month, day));
+      final isUnavailable = _unavailableDays.contains(dateStr);
       final displayedIntervals =
           dayReservations.take(3).map((r) => r['interval'] ?? '').toList();
 
@@ -751,42 +1229,86 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
         MouseRegion(
           cursor: SystemMouseCursors.click, // ← ポインターに変化
           child: GestureDetector(
-            onTap: () {
-              // 日付セルをクリック → ダイアログ表示
-              _showDayReservationsDialog(day);
-            },
-            child: Container(
-              margin: const EdgeInsets.all(4),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Colors.grey),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$day日',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  for (int i = 0; i < displayedIntervals.length; i++)
+              onTap: () {
+                // 日付セルをクリック → ダイアログ表示
+                _showDayReservationsDialog(day);
+              },
+              child: Container(
+                margin: const EdgeInsets.all(4),
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: isUnavailable ? Colors.grey[300] : Colors.white,
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      displayedIntervals[i],
-                      style: const TextStyle(fontSize: 12),
+                      '$day日',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: isUnavailable ? Colors.red : Colors.black,
+                      ),
                     ),
-                  if (dayReservations.length > 3)
-                    const Text(
-                      '...',
-                      style: TextStyle(fontSize: 12, color: Colors.red),
-                    ),
-                ],
-              ),
-            ),
-          ),
+                    if (isUnavailable)
+                      if (isUnavailable)
+                        FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                          future: FirebaseFirestore.instance
+                              .collection('facilities')
+                              .doc(_selectedFacilityId)
+                              .collection('unavailable_dates')
+                              .doc(dateStr)
+                              .get(),
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState !=
+                                ConnectionState.done) {
+                              return const Text('予約不可',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.red));
+                            }
+                            if (!snapshot.hasData || !snapshot.data!.exists) {
+                              return const Text('予約不可',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.red));
+                            }
+                            final data = snapshot.data!.data()!;
+                            if (data['allDay'] == true) {
+                              return const Text('1日予約不可',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.red));
+                            } else {
+                              final times = List<String>.from(
+                                  data['unavailableTimes'] ?? []);
+                              if (times.isEmpty) {
+                                return const Text('予約不可',
+                                    style: TextStyle(
+                                        fontSize: 12, color: Colors.red));
+                              }
+                              final start = times.first;
+                              final end = _addThirtyMinutes(times.last);
+                              return Text(
+                                '$start～$end 予約不可',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.red),
+                              );
+                            }
+                          },
+                        ),
+                    for (int i = 0; i < displayedIntervals.length; i++)
+                      Text(
+                        displayedIntervals[i],
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    if (dayReservations.length > 3)
+                      const Text(
+                        '...',
+                        style: TextStyle(fontSize: 12, color: Colors.red),
+                      ),
+                  ],
+                ),
+              )),
         ),
       );
     }
@@ -1169,7 +1691,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                   ElevatedButton(
                     style: buttonStyle,
                     onPressed: _editCalendar,
-                    child: const Text('カレンダー編集'),
+                    child: const Text('予約不可設定'),
                   ),
                 ],
               ),

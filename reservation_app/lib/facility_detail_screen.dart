@@ -15,6 +15,7 @@ class FacilityDetailScreen extends StatefulWidget {
 class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
   DateTime _selectedDate = DateTime.now();
   Map<String, Map<String, bool>> _weeklyReservationStatus = {};
+  Set<String> _unavailableDateSet = {};
 
   // ▼ 追加：読み込み中かどうかを管理するフラグ
   bool _isLoading = false;
@@ -34,24 +35,64 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     });
 
     Map<String, Map<String, bool>> newWeeklyStatus = {};
+    final facilityId = widget.facility['id'];
+
+    // 予約不可情報を全部取得（週の全日分をまとめて）
+    final unavailableSnapshot = await FirebaseFirestore.instance
+        .collection('facilities')
+        .doc(facilityId)
+        .collection('unavailable_dates')
+        .get();
+
+    // ドキュメントID（yyyy-MM-dd）とデータの Map
+    final Map<String, Map<String, dynamic>> unavailableMap = {
+      for (var doc in unavailableSnapshot.docs) doc.id: doc.data()
+    };
 
     for (int i = 0; i < 7; i++) {
       final day = startDate.add(Duration(days: i));
       final dayOnly = DateTime(day.year, day.month, day.day);
       final dayKey = dayOnly.toIso8601String().split('T')[0];
 
-      final querySnapshot = await FirebaseFirestore.instance
+      final dailyStatus = <String, bool>{};
+
+      // --------- 1️⃣ 全時間帯を初期状態（予約可能 = false）で登録 ---------
+      for (int hour = 0; hour < 24; hour++) {
+        for (int minute = 0; minute < 60; minute += 30) {
+          final time =
+              '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+          dailyStatus[time] = false; // 空き
+        }
+      }
+
+      // --------- 2️⃣ 予約済み時間を × にする ---------
+      final reservationSnapshot = await FirebaseFirestore.instance
           .collection('reservations')
-          .where('facilityId', isEqualTo: widget.facility['id'])
+          .where('facilityId', isEqualTo: facilityId)
           .where('date', isEqualTo: Timestamp.fromDate(dayOnly))
           .get();
 
-      final dailyStatus = <String, bool>{};
-      for (final doc in querySnapshot.docs) {
+      for (final doc in reservationSnapshot.docs) {
         final List<String> times = List<String>.from(doc['times'] ?? []);
-        // 最後の時間（endTime）は表示には含めない
         for (int i = 0; i < times.length - 1; i++) {
-          dailyStatus[times[i]] = true;
+          dailyStatus[times[i]] = true; // 予約済み → ×
+        }
+      }
+
+      // --------- 3️⃣ 予約不可時間（管理者設定）を × にする ---------
+      if (unavailableMap.containsKey(dayKey)) {
+        final data = unavailableMap[dayKey]!;
+        if (data['allDay'] == true) {
+          // 終日不可
+          for (final key in dailyStatus.keys) {
+            dailyStatus[key] = true; // 全時間 ×
+          }
+        } else {
+          final List<String> times =
+              List<String>.from(data['unavailableTimes'] ?? []);
+          for (final t in times) {
+            dailyStatus[t] = true; // 特定時間帯 ×
+          }
         }
       }
 
@@ -60,6 +101,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
     setState(() {
       _weeklyReservationStatus = newWeeklyStatus;
+      _unavailableDateSet = unavailableMap.keys.toSet();
       _isLoading = false;
     });
   }
@@ -328,7 +370,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
                         SizedBox(
                           width: columnWidth,
                           child: GestureDetector(
-                            onTap: !isReserved
+                            onTap: (!isReserved)
                                 ? () {
                                     _showReservationDialog(day, time);
                                   }
