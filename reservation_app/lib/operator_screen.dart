@@ -1237,7 +1237,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                 margin: const EdgeInsets.all(4),
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: isUnavailable ? Colors.grey[300] : Colors.white,
+                  color: Colors.white,
                   border: Border.all(color: Colors.grey),
                   borderRadius: BorderRadius.circular(6),
                 ),
