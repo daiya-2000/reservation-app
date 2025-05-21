@@ -848,48 +848,37 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       ]);
     }
 
-    // sheet1: 明細
-    final csv1 = <List<dynamic>>[
+    final csvDetail = <List<dynamic>>[
       ['部屋番号', '名前', '利用日付', '利用施設名', '利用時間', '支払い金額'],
       ...detailRows
     ];
 
-// sheet2: 合計（部屋番号ごとの合計時間と金額）
     final summaryMap = <String, Map<String, dynamic>>{};
 
-    userMap.forEach((userId, user) {
-      final room = user['roomNumber'];
-      if (!summaryMap.containsKey(room)) {
-        summaryMap[room] = {
-          'roomNumber': room,
-          'totalTime': 0,
-          'totalAmount': 0,
-        };
-      }
+    // 合計情報の集計
+    for (var row in detailRows) {
+      final roomNumber = row[0] as String;
+      final timeStr = row[4] as String;
+      final amount = row[5] as int;
 
-      // ユーザーごとの合計時間・金額を detailRows から合算
-      final userDetails =
-          detailRows.where((row) => row[0] == room && row[1] == user['name']);
-      int totalMinutes = 0;
-      int totalAmount = 0;
-      for (var row in userDetails) {
-        final timeStr = row[4] as String;
-        final timeMatch = RegExp(r'(\d+)時間(?:([0-9]+)分)?').firstMatch(timeStr);
-        if (timeMatch != null) {
-          final hours = int.parse(timeMatch.group(1)!);
-          final minutes =
-              timeMatch.group(2) != null ? int.parse(timeMatch.group(2)!) : 0;
-          totalMinutes += (hours * 60) + minutes;
-        }
-        // 支払い金額は修正後のものに更新
-        totalAmount += row[5] as int;
-      }
+      final match = RegExp(r'(\d+)時間(?:([0-9]+)分)?').firstMatch(timeStr);
+      if (match == null) continue;
 
-      summaryMap[room]!['totalTime'] += totalMinutes;
-      summaryMap[room]!['totalAmount'] += totalAmount;
-    });
+      final hours = int.parse(match.group(1)!);
+      final minutes = match.group(2) != null ? int.parse(match.group(2)!) : 0;
+      final totalMinutes = hours * 60 + minutes;
 
-    final csv2 = <List<dynamic>>[
+      summaryMap[roomNumber] ??= {
+        'roomNumber': roomNumber,
+        'totalTime': 0,
+        'totalAmount': 0,
+      };
+
+      summaryMap[roomNumber]!['totalTime'] += totalMinutes;
+      summaryMap[roomNumber]!['totalAmount'] += amount;
+    }
+
+    final csvSummary = <List<dynamic>>[
       ['部屋番号', '合計利用時間', '月の支払い合計'],
       ...summaryMap.values.map((e) => [
             e['roomNumber'],
@@ -898,24 +887,33 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
           ])
     ];
 
-// 結合（空行で区切って1ファイルに）
-    final csvCombined = [
-      ...csv1,
-      [],
-      [],
-      ...csv2,
-    ];
+    final csvDetailText = const ListToCsvConverter().convert(csvDetail);
+    final csvSummaryText = const ListToCsvConverter().convert(csvSummary);
 
-    final csvText = const ListToCsvConverter().convert(csvCombined);
+    final encodedDetail = utf8.encode(csvDetailText);
+    final encodedSummary = utf8.encode(csvSummaryText);
 
-    final bytes = utf8.encode(csvText);
-    final blob = html.Blob([bytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
-      ..setAttribute(
-          'download', '予約支払明細_${year}_${month.toString().padLeft(2, '0')}.csv')
+    final blobDetail = html.Blob([encodedDetail]);
+    final blobSummary = html.Blob([encodedSummary]);
+
+    final facilityFileName =
+        facilityName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_'); // ファイル名に使えない文字対策
+
+    final detailUrl = html.Url.createObjectUrlFromBlob(blobDetail);
+    final summaryUrl = html.Url.createObjectUrlFromBlob(blobSummary);
+
+    final detailAnchor = html.AnchorElement(href: detailUrl)
+      ..setAttribute('download',
+          '${facilityFileName}_${year}_${month.toString().padLeft(2, '0')}_明細.csv')
       ..click();
-    html.Url.revokeObjectUrl(url);
+
+    final summaryAnchor = html.AnchorElement(href: summaryUrl)
+      ..setAttribute('download',
+          '${facilityFileName}_${year}_${month.toString().padLeft(2, '0')}_合計.csv')
+      ..click();
+
+    html.Url.revokeObjectUrl(detailUrl);
+    html.Url.revokeObjectUrl(summaryUrl);
   }
 
   // 日付セルタップ -> その日の予約をダイアログ表示
