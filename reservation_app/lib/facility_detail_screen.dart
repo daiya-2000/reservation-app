@@ -233,13 +233,13 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
       String unitLabel;
       switch (unitKey) {
-        case 'm':
+        case 'min':
           unitLabel = '分';
           break;
         case 'h':
           unitLabel = '時間';
           break;
-        case 'd':
+        case 'day':
           unitLabel = '日';
           break;
         default:

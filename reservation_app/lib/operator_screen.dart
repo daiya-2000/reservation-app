@@ -808,9 +808,13 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       final times = List<String>.from(data['times'] ?? []);
       if (times.length < 2) continue; // 1枠未満はスキップ
 
-      final slotCount = times.length - 1; // ← 修正済み
+      final slotCount = times.length - 1;
       final totalMinutes = slotCount * 30;
-      final amount = (pricePer30Min * slotCount).round();
+
+// ★ ここを修正：切り上げて unitTime ごとの単位で課金
+      final unitDuration = unitInMinutes; // 例: 120分 (2時間)
+      final numUnits = (totalMinutes / unitDuration).ceil();
+      final amount = numUnits * price;
 
       final timeStr = totalMinutes % 60 == 0
           ? '${totalMinutes ~/ 60}時間'
@@ -850,17 +854,51 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       ...detailRows
     ];
 
-    // sheet2: 合計
+// sheet2: 合計（部屋番号ごとの合計時間と金額）
+    final summaryMap = <String, Map<String, dynamic>>{};
+
+    userMap.forEach((userId, user) {
+      final room = user['roomNumber'];
+      if (!summaryMap.containsKey(room)) {
+        summaryMap[room] = {
+          'roomNumber': room,
+          'totalTime': 0,
+          'totalAmount': 0,
+        };
+      }
+
+      // ユーザーごとの合計時間・金額を detailRows から合算
+      final userDetails =
+          detailRows.where((row) => row[0] == room && row[1] == user['name']);
+      int totalMinutes = 0;
+      int totalAmount = 0;
+      for (var row in userDetails) {
+        final timeStr = row[4] as String;
+        final timeMatch = RegExp(r'(\d+)時間(?:([0-9]+)分)?').firstMatch(timeStr);
+        if (timeMatch != null) {
+          final hours = int.parse(timeMatch.group(1)!);
+          final minutes =
+              timeMatch.group(2) != null ? int.parse(timeMatch.group(2)!) : 0;
+          totalMinutes += (hours * 60) + minutes;
+        }
+        // 支払い金額は修正後のものに更新
+        totalAmount += row[5] as int;
+      }
+
+      summaryMap[room]!['totalTime'] += totalMinutes;
+      summaryMap[room]!['totalAmount'] += totalAmount;
+    });
+
     final csv2 = <List<dynamic>>[
-      ['部屋番号', '名前', '月の支払い合計'],
-      ...userMap.entries.map((e) => [
-            e.value['roomNumber'],
-            e.value['name'],
-            e.value['total'],
+      ['部屋番号', '合計利用時間', '月の支払い合計'],
+      ...summaryMap.values.map((e) => [
+            e['roomNumber'],
+            '${e['totalTime'] ~/ 60}時間${e['totalTime'] % 60}分',
+            e['totalAmount'],
           ])
     ];
 
-    // 結合（空行で区切って1ファイルに）
+// 結合（空行で区切って1ファイルに）
     final csvCombined = [
       ...csv1,
       [],
