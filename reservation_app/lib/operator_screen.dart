@@ -24,17 +24,61 @@ class OperatorScreen extends StatefulWidget {
 
 class _OperatorScreenState extends State<OperatorScreen> {
   int _selectedIndex = 0;
+  String? _apartmentId;
 
-  final List<Widget> _pages = [
-    HomeScreen(),
-    const FacilityCalendarScreen(),
-    const BulletinBoardScreen(),
-    // const PlaceholderScreen(title: '申請・アンケート'),
-    const AccountScreen(),
-  ];
+  bool _isFirstBuild = true; // ★ 初回だけ実行するためのフラグ
+
+  List<Widget> get _pages => [
+        HomeScreen(apartmentId: _apartmentId ?? ''),
+        FacilityCalendarScreen(apartmentId: _apartmentId ?? ''),
+        BulletinBoardScreen(apartmentId: _apartmentId ?? ''),
+        AccountScreen(apartmentId: _apartmentId ?? ''),
+      ];
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_isFirstBuild) {
+      final args = ModalRoute.of(context)?.settings.arguments;
+
+      if (args is String) {
+        setState(() {
+          _apartmentId = args;
+        });
+      } else {
+        // 引数がない場合（BuildingAdminと想定）、ログインユーザーのFirestore情報から取得
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get()
+              .then((doc) {
+            if (doc.exists) {
+              final data = doc.data();
+              final apartment = data?['apartment'];
+              if (apartment != null && mounted) {
+                setState(() {
+                  _apartmentId = apartment;
+                });
+              }
+            }
+          });
+        }
+      }
+
+      _isFirstBuild = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_apartmentId == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('マンション管理者ダッシュボード'),
@@ -55,58 +99,35 @@ class _OperatorScreenState extends State<OperatorScreen> {
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(Icons.home),
-                label: Text(
-                  'ホーム',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: Text('ホーム',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.calendar_today),
-                label: Text(
-                  '施設カレンダー',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: Text('施設カレンダー',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.message),
-                label: Text(
-                  '掲示板',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: Text('掲示板',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
-              // NavigationRailDestination(
-              //   icon: Icon(Icons.note),
-              //   label: Text(
-              //     '申請・アンケート',
-              //     style: TextStyle(
-              //       fontSize: 14,
-              //       color: Colors.white,
-              //       fontWeight: FontWeight.bold,
-              //     ),
-              //   ),
-              // ),
               NavigationRailDestination(
                 icon: Icon(Icons.account_circle),
-                label: Text(
-                  'アカウント',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: Text('アカウント',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -121,7 +142,8 @@ class _OperatorScreenState extends State<OperatorScreen> {
    ホーム画面
 ---------------------------------------------------------------- */
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  final String apartmentId;
+  const HomeScreen({Key? key, required this.apartmentId}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +155,8 @@ class HomeScreen extends StatelessWidget {
           _buildDashboardCard(
             title: '施設予約状況表示',
             buttonText: 'もっと見る',
-            onPressed: () => _showTodayAndTomorrowReservations(context),
+            onPressed: () =>
+                _showTodayAndTomorrowReservations(context, apartmentId),
           ),
           // const SizedBox(height: 16),
           // _buildDashboardCard(
@@ -193,7 +216,8 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-void _showTodayAndTomorrowReservations(BuildContext context) async {
+void _showTodayAndTomorrowReservations(
+    BuildContext context, String apartmentId) async {
   final today = DateTime.now();
   final tomorrow = today.add(const Duration(days: 1));
   final List<DateTime> targetDates = [today, tomorrow];
@@ -203,6 +227,7 @@ void _showTodayAndTomorrowReservations(BuildContext context) async {
     final dateOnly = DateTime(date.year, date.month, date.day);
     final snapshot = await FirebaseFirestore.instance
         .collection('reservations')
+        .where('apartmentId', isEqualTo: apartmentId)
         .where('date', isEqualTo: Timestamp.fromDate(dateOnly))
         .get();
 
@@ -304,7 +329,9 @@ String _addThirtyMinutes(String time) {
    施設カレンダー画面 (メイン)
 ---------------------------------------------------------------- */
 class FacilityCalendarScreen extends StatefulWidget {
-  const FacilityCalendarScreen({Key? key}) : super(key: key);
+  final String apartmentId;
+  const FacilityCalendarScreen({Key? key, required this.apartmentId})
+      : super(key: key);
 
   @override
   _FacilityCalendarScreenState createState() => _FacilityCalendarScreenState();
@@ -365,8 +392,10 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
   // 施設一覧を取得
   Future<void> _fetchFacilities() async {
-    final snapshot =
-        await FirebaseFirestore.instance.collection('facilities').get();
+    final snapshot = await FirebaseFirestore.instance
+        .collection('facilities')
+        .where('apartment_id', isEqualTo: widget.apartmentId)
+        .get();
 
     final facilityList =
         snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
@@ -1783,7 +1812,9 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
    掲示板画面
 ---------------------------------------------------------------- */
 class BulletinBoardScreen extends StatefulWidget {
-  const BulletinBoardScreen({Key? key}) : super(key: key);
+  final String apartmentId;
+  const BulletinBoardScreen({Key? key, required this.apartmentId})
+      : super(key: key);
 
   @override
   State<BulletinBoardScreen> createState() => _BulletinBoardScreenState();
@@ -1801,6 +1832,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
   Future<void> _fetchPosts() async {
     final snapshot = await FirebaseFirestore.instance
         .collection('bulletin_posts')
+        .where('apartmentId', isEqualTo: widget.apartmentId)
         .orderBy('createdAt', descending: true)
         .get();
 
@@ -1909,6 +1941,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                     'title': title,
                     'body': body,
                     'pdfUrl': pdfUrl,
+                    'apartmentId': widget.apartmentId,
                     'createdAt': Timestamp.now(),
                   });
 
@@ -2177,9 +2210,10 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
    アカウント管理画面
 ---------------------------------------------------------------- */
 class AccountScreen extends StatelessWidget {
-  const AccountScreen({Key? key}) : super(key: key);
+  final String apartmentId;
+  const AccountScreen({Key? key, required this.apartmentId}) : super(key: key);
 
-  Future<List<Map<String, dynamic>>> _fetchResidents() async {
+  Future<List<Map<String, dynamic>>> _fetchResidents(String apartmentId) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return [];
 
@@ -2354,7 +2388,7 @@ class AccountScreen extends StatelessWidget {
         ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _fetchResidents(),
+        future: _fetchResidents(apartmentId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
