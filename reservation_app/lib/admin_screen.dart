@@ -21,7 +21,10 @@ class _AdminScreenState extends State<AdminScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('管理会社ダッシュボード'),
+        title: const Text(
+          '管理会社ダッシュボード',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+        ),
       ),
       body: Row(
         children: [
@@ -40,7 +43,7 @@ class _AdminScreenState extends State<AdminScreen> {
               NavigationRailDestination(
                 icon: Icon(Icons.apartment),
                 label: Text(
-                  '管理マンション',
+                  '管理マンション一覧',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white,
@@ -51,7 +54,7 @@ class _AdminScreenState extends State<AdminScreen> {
               NavigationRailDestination(
                 icon: Icon(Icons.supervisor_account),
                 label: Text(
-                  '管理人アカウント',
+                  '管理人アカウント一覧',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white,
@@ -127,14 +130,72 @@ class ApartmentManagementScreen extends StatelessWidget {
     }
   }
 
+  void _showAddApartmentDialog(BuildContext context) async {
+    final TextEditingController _nameController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('新規マンション追加'),
+          content: TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(labelText: 'マンション名'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = _nameController.text.trim();
+                if (name.isEmpty) return;
+
+                final adminId = FirebaseAuth.instance.currentUser?.uid;
+                if (adminId == null) return;
+
+                await FirebaseFirestore.instance.collection('apartments').add({
+                  'name': name,
+                  'companyAdminId': adminId,
+                });
+
+                Navigator.pop(dialogContext);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('マンションを追加しました')),
+                );
+              },
+              child: const Text('作成'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('管理マンション一覧', style: Theme.of(context).textTheme.titleLarge),
+          // タイトルとボタンを横並びにして右寄せ
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Spacer(),
+              const Text(
+                '管理マンション一覧',
+                style: TextStyle(fontSize: 24),
+              ),
+              const Spacer(),
+              ElevatedButton(
+                onPressed: () => _showAddApartmentDialog(context),
+                child: const Text('新規マンション追加'),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           FutureBuilder<List<Map<String, dynamic>>>(
             future: _fetchApartments(),

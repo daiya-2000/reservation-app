@@ -81,7 +81,10 @@ class _OperatorScreenState extends State<OperatorScreen> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('マンション管理者ダッシュボード'),
+        title: const Text(
+          'マンション管理者ダッシュボード',
+          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+        ),
       ),
       body: Row(
         children: [
@@ -150,7 +153,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.account_circle),
-                label: Text('アカウント',
+                label: Text('住人アカウント一覧',
                     style: TextStyle(
                         fontSize: 14,
                         color: Colors.white,
@@ -182,24 +185,30 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildDashboardCard(
-            title: '施設予約状況表示',
-            buttonText: 'もっと見る',
-            onPressed: () =>
-                _showTodayAndTomorrowReservations(context, apartmentId),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'ホーム',
+          style: TextStyle(
+            fontSize: 24,
           ),
-          // const SizedBox(height: 16),
-          // _buildDashboardCard(
-          //   title: '住人の新規申請表示',
-          //   buttonText: 'もっと見る',
-          //   onPressed: () {},
-          // ),
-        ],
+        ),
+        centerTitle: true, // ★ タイトルを中央に表示
+        automaticallyImplyLeading: false, // ← 戻る矢印が出ないように（念のため）
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildDashboardCard(
+              title: '施設予約状況表示',
+              buttonText: 'もっと見る',
+              onPressed: () =>
+                  _showTodayAndTomorrowReservations(context, apartmentId),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -893,8 +902,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
             .doc(userId)
             .get();
         userMap[userId] = {
-          'name': userDoc['name'] ?? '不明',
-          'roomNumber': userDoc['roomNumber'] ?? '不明',
+          'name': userDoc.data()?['name'] ?? '不明',
+          'roomNumber': userDoc.data()?['roomNumber'] ?? '不明',
           'total': 0,
         };
       }
@@ -1588,7 +1597,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                     .collection('users')
                     .doc(user.uid)
                     .get();
-                final apartmentId = userDoc['apartment'] ?? 'unknown_apartment';
+                final apartmentId =
+                    userDoc.data()?['apartment'] ?? 'unknown_apartment';
 
                 imageUrl = await _uploadImageToStorage();
 
@@ -2249,15 +2259,6 @@ class AccountScreen extends StatelessWidget {
   const AccountScreen({Key? key, required this.apartmentId}) : super(key: key);
 
   Future<List<Map<String, dynamic>>> _fetchResidents(String apartmentId) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return [];
-
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-    final apartmentId = userDoc['apartment'];
-
     final querySnapshot = await FirebaseFirestore.instance
         .collection('users')
         .where('apartment', isEqualTo: apartmentId)
@@ -2270,15 +2271,6 @@ class AccountScreen extends StatelessWidget {
   }
 
   Future<void> _createResidentAccount(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-    final apartmentId = userDoc['apartment'];
-
     final roomNumberController = TextEditingController();
     final passwordController = TextEditingController();
 
@@ -2323,7 +2315,8 @@ class AccountScreen extends StatelessWidget {
                     'email': '${roomNumberController.text.trim()}@example.com',
                     'roomNumber': roomNumberController.text.trim(),
                     'role': 'Resident',
-                    'apartment': apartmentId,
+                    'apartment':
+                        apartmentId, // ← ここを修正して context で受け取った apartmentId を使用
                   });
 
                   Navigator.pop(context);
@@ -2393,82 +2386,60 @@ class AccountScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text(
           '住人アカウント',
           style: TextStyle(
             fontSize: 24,
           ),
         ),
-        actions: [
-          Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: OutlinedButton(
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
               onPressed: () => _createResidentAccount(context),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Colors.purple),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              child: const Text(
-                '新規住人アカウント作成',
-                style: TextStyle(
-                  color: Colors.purple,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: const Text('新規住人アカウント作成'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _fetchResidents(apartmentId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError ||
+                    snapshot.data == null ||
+                    snapshot.data!.isEmpty) {
+                  return const Center(child: Text('住人情報が見つかりませんでした。'));
+                }
+
+                final residents = snapshot.data!;
+                return ListView.builder(
+                  itemCount: residents.length,
+                  itemBuilder: (context, index) {
+                    final resident = residents[index];
+                    return Card(
+                      margin: const EdgeInsets.all(8.0),
+                      child: ListTile(
+                        title: Text(resident['name'] ?? '名前不明'),
+                        subtitle:
+                            Text('部屋番号: ${resident['roomNumber'] ?? '不明'}'),
+                        trailing: const Icon(Icons.arrow_forward_ios),
+                        onTap: () => _showResidentDialog(context, resident),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],
-      ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _fetchResidents(apartmentId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError ||
-              snapshot.data == null ||
-              snapshot.data!.isEmpty) {
-            return const Center(child: Text('住人情報が見つかりませんでした。'));
-          }
-
-          final residents = snapshot.data!;
-          return ListView.builder(
-            itemCount: residents.length,
-            itemBuilder: (context, index) {
-              final resident = residents[index];
-              return Card(
-                margin: const EdgeInsets.all(8.0),
-                child: ListTile(
-                  title: Text(resident['name'] ?? '名前不明'),
-                  subtitle: Text('部屋番号: ${resident['roomNumber'] ?? '不明'}'),
-                  trailing: const Icon(Icons.arrow_forward_ios),
-                  onTap: () => _showResidentDialog(context, resident),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-/* ----------------------------------------------------------------
-   プレースホルダー画面 (既存)
----------------------------------------------------------------- */
-class PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const PlaceholderScreen({Key? key, required this.title}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
       ),
     );
   }
