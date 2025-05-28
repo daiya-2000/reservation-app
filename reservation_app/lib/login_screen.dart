@@ -28,10 +28,15 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _login() async {
-    try {
-      final email = _emailController.text.trim();
-      final password = _passwordController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
 
+    if (email.isEmpty || password.isEmpty) {
+      _showErrorMessage('メールアドレスとパスワードを入力してください');
+      return;
+    }
+
+    try {
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
@@ -39,15 +44,44 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final user = userCredential.user;
       if (user == null) {
-        throw Exception('ユーザー情報の取得に失敗しました。');
+        _showErrorMessage('ログインに失敗しました。もう一度お試しください。');
+        return;
       }
 
       await _navigateToRoleBasedScreen(user);
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'invalid-email':
+          message = 'メールアドレスの形式が正しくありません。';
+          break;
+        case 'user-disabled':
+          message = 'このユーザーアカウントは無効化されています。';
+          break;
+        case 'user-not-found':
+          message = '登録されていないメールアドレスです。';
+          break;
+        case 'wrong-password':
+          message = 'パスワードが間違っています。';
+          break;
+        default:
+          message = 'ログインに失敗しました。 (${e.code})';
+          break;
+      }
+      _showErrorMessage(message);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ログイン失敗: $e')),
-      );
+      _showErrorMessage('予期しないエラーが発生しました。もう一度お試しください。');
     }
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red[400],
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _navigateToRoleBasedScreen(User user) async {

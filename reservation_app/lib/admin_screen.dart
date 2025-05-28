@@ -30,10 +30,37 @@ class _AdminScreenState extends State<AdminScreen> {
         children: [
           NavigationRail(
             selectedIndex: _selectedIndex,
-            onDestinationSelected: (int index) {
-              setState(() {
-                _selectedIndex = index;
-              });
+            onDestinationSelected: (int index) async {
+              if (index == 2) {
+                final shouldLogout = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('ログアウト確認'),
+                    content: const Text('ログアウトしますか？'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('キャンセル'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('ログアウト'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (shouldLogout == true) {
+                  await FirebaseAuth.instance.signOut();
+                  if (mounted) {
+                    Navigator.of(context).pushReplacementNamed('/login');
+                  }
+                }
+              } else {
+                setState(() {
+                  _selectedIndex = index;
+                });
+              }
             },
             backgroundColor: Colors.blue[900],
             selectedIconTheme: const IconThemeData(color: Colors.white),
@@ -61,6 +88,14 @@ class _AdminScreenState extends State<AdminScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.logout),
+                label: Text('ログアウト',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
