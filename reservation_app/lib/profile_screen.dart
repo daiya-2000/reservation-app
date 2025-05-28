@@ -20,7 +20,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _nameController.text.isEmpty ||
         _roomNumberController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('全ての項目を入力してください')),
+        const SnackBar(
+          content: Text('すべての項目を入力してください。'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -30,18 +34,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (user != null) {
         await _firestore.collection('users').doc(user.uid).set({
           'apartment': _selectedApartment,
-          'name': _nameController.text,
-          'roomNumber': _roomNumberController.text,
+          'name': _nameController.text.trim(),
+          'roomNumber': _roomNumberController.text.trim(),
           'email': user.email,
         });
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('プロフィールが保存されました')),
+          const SnackBar(
+            content: Text('プロフィールが保存されました。'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
+
         Navigator.pushReplacementNamed(context, '/main'); // 修正されたルート名
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('プロフィール保存に失敗しました: $e')),
+        const SnackBar(
+          content: Text('プロフィールの保存に失敗しました。しばらくしてからもう一度お試しください。'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }

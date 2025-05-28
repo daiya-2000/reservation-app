@@ -21,25 +21,41 @@ class _BulletinTabState extends State<BulletinTab> {
   }
 
   Future<void> _fetchPosts() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('bulletin_posts')
-        .orderBy('createdAt', descending: true)
-        .get();
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('bulletin_posts')
+          .orderBy('createdAt', descending: true)
+          .get();
 
-    final postList = snapshot.docs.map((doc) {
-      final data = doc.data();
-      return {
-        'title': data['title'] ?? '無題',
-        'body': data['body'] ?? '',
-        'pdfUrl': data['pdfUrl'],
-        'createdAt': data['createdAt'],
-      };
-    }).toList();
+      final postList = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'title': data['title'] ?? '無題',
+          'body': data['body'] ?? '',
+          'pdfUrl': data['pdfUrl'],
+          'createdAt': data['createdAt'],
+        };
+      }).toList();
 
-    setState(() {
-      _posts = postList;
-      _isLoading = false;
-    });
+      if (mounted) {
+        setState(() {
+          _posts = postList;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('掲示の取得に失敗しました: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('掲示の取得に失敗しました。再度お試しください。'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   void _showPostDetailDialog(Map<String, dynamic> post) {

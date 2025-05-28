@@ -74,7 +74,15 @@ class _HomeTabState extends State<HomeTab> {
         }
       }
     } catch (e) {
-      debugPrint('Error fetching user data: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ユーザー情報の取得に失敗しました。再読み込みしてください。'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -102,7 +110,15 @@ class _HomeTabState extends State<HomeTab> {
         });
       }
     } catch (e) {
-      debugPrint('掲示の取得に失敗しました: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('掲示の取得に失敗しました。通信環境を確認してください。'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -224,7 +240,11 @@ class _HomeTabState extends State<HomeTab> {
                   );
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('エラー: $e')),
+                    const SnackBar(
+                      content: Text('プロフィールの更新に失敗しました。'),
+                      backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
+                    ),
                   );
                 }
               },
@@ -317,7 +337,10 @@ class _HomeTabState extends State<HomeTab> {
                                   confirmEmailController.text.trim()) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                      content: Text('メールアドレスが一致しません。')),
+                                    content: Text('メールアドレスが一致しません。'),
+                                    backgroundColor: Colors.red,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
                                 );
                                 return;
                               }
@@ -351,8 +374,13 @@ class _HomeTabState extends State<HomeTab> {
                     },
                   );
                 } catch (e) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text('エラー: $e')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('メールアドレスの変更に失敗しました。'),
+                      backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
                 }
               },
               child: const Text('次へ'),
@@ -468,8 +496,13 @@ class _HomeTabState extends State<HomeTab> {
                     },
                   );
                 } catch (e) {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(SnackBar(content: Text('エラー: $e')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('メールアドレスの変更に失敗しました。'),
+                      backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
                 }
               },
               child: const Text('次へ'),
@@ -636,7 +669,11 @@ class _HomeTabState extends State<HomeTab> {
                   Navigator.pop(context);
                   debugPrint('❌ その他のエラー: $e');
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('予期せぬエラーが発生しました: $e')),
+                    const SnackBar(
+                      content: Text('アカウント作成に失敗しました。もう一度お試しください。'),
+                      backgroundColor: Colors.red,
+                      behavior: SnackBarBehavior.floating,
+                    ),
                   );
                 }
               },

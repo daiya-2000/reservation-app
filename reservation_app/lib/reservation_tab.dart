@@ -44,8 +44,19 @@ class ReservationTab extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          if (snapshot.hasError || snapshot.data == null) {
-            return const Center(child: Text('マンション情報を取得できませんでした。'));
+          if (snapshot.hasError ||
+              snapshot.data == null ||
+              snapshot.data!.isEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('施設情報の取得に失敗しました。'),
+                  backgroundColor: Colors.red,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            });
+            return const Center(child: Text('施設情報が見つかりませんでした。'));
           }
 
           final apartmentId = snapshot.data!;

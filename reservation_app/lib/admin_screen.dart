@@ -115,29 +115,46 @@ class ApartmentManagementScreen extends StatelessWidget {
   }
 
   Future<List<Map<String, dynamic>>> _fetchApartments() async {
-    final adminId = await _getCurrentCompanyAdminId();
-    if (adminId == null) return [];
+    try {
+      final adminId = await _getCurrentCompanyAdminId();
+      if (adminId == null) {
+        throw Exception('管理者情報が取得できませんでした');
+      }
 
-    final query = await FirebaseFirestore.instance
-        .collection('apartments')
-        .where('companyAdminId', isEqualTo: adminId)
-        .get();
+      final query = await FirebaseFirestore.instance
+          .collection('apartments')
+          .where('companyAdminId', isEqualTo: adminId)
+          .get();
 
-    return query.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+      return query.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+    } catch (e) {
+      // SnackBarを表示
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('マンションの取得に失敗しました: ${_translateError(e.toString())}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      });
+      return [];
+    }
   }
 
   void _showLoginDialog(
       BuildContext context, Map<String, dynamic> apartment) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) throw Exception('ログインユーザーが見つかりません');
 
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser.uid)
-        .get();
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
 
-    final role = userDoc.data()?['role'];
-    if (role == 'CompanyAdmin') {
+      final role = userDoc.data()?['role'];
+      if (role != 'CompanyAdmin') throw Exception('権限がありません');
+
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -160,6 +177,13 @@ class ApartmentManagementScreen extends StatelessWidget {
               child: const Text('ログイン'),
             ),
           ],
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('ログインに失敗しました: ${_translateError(e.toString())}'),
+          backgroundColor: Colors.red,
         ),
       );
     }
@@ -185,21 +209,42 @@ class ApartmentManagementScreen extends StatelessWidget {
             ElevatedButton(
               onPressed: () async {
                 final name = _nameController.text.trim();
-                if (name.isEmpty) return;
+                if (name.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('マンション名を入力してください'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
 
-                final adminId = FirebaseAuth.instance.currentUser?.uid;
-                if (adminId == null) return;
+                try {
+                  final adminId = FirebaseAuth.instance.currentUser?.uid;
+                  if (adminId == null) throw Exception('管理者情報が取得できません');
 
-                await FirebaseFirestore.instance.collection('apartments').add({
-                  'name': name,
-                  'companyAdminId': adminId,
-                });
+                  await FirebaseFirestore.instance
+                      .collection('apartments')
+                      .add({
+                    'name': name,
+                    'companyAdminId': adminId,
+                  });
 
-                Navigator.pop(dialogContext);
+                  Navigator.pop(dialogContext);
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('マンションを追加しました')),
-                );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('マンションを追加しました')),
+                  );
+                } catch (e) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          'マンションの追加に失敗しました: ${_translateError(e.toString())}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               },
               child: const Text('作成'),
             ),
@@ -278,5 +323,17 @@ class ManagerAccountScreen extends StatelessWidget {
         style: Theme.of(context).textTheme.titleLarge,
       ),
     );
+  }
+}
+
+String _translateError(String error) {
+  if (error.contains('network-request-failed')) {
+    return 'ネットワークに接続できません。接続を確認してください。';
+  } else if (error.contains('permission-denied')) {
+    return '権限がありません。';
+  } else if (error.contains('not-found')) {
+    return '対象のデータが見つかりませんでした。';
+  } else {
+    return '不明なエラーが発生しました。';
   }
 }
