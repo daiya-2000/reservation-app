@@ -271,52 +271,52 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
   }
 
   @override
-Widget build(BuildContext context) {
-  return Padding(
-    padding: const EdgeInsets.all(16.0),
-    child: Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Spacer(),
-            const Text(
-              '管理マンション一覧',
-              style: TextStyle(fontSize: 24),
-            ),
-            const Spacer(),
-            ElevatedButton(
-              onPressed: () => _showAddApartmentDialog(context),
-              child: const Text('新規マンション追加'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _apartments.isEmpty
-                  ? const Text('管理しているマンションはありません。')
-                  : ListView.builder(
-                      itemCount: _apartments.length,
-                      itemBuilder: (context, index) {
-                        final apartment = _apartments[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 8),
-                          child: ListTile(
-                            title: Text(apartment['name'] ?? '名称不明'),
-                            trailing: const Icon(Icons.login),
-                            onTap: () => _showLoginDialog(context, apartment),
-                          ),
-                        );
-                      },
-                    ),
-        ),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Spacer(),
+              const Text(
+                '管理マンション一覧',
+                style: TextStyle(fontSize: 24),
+              ),
+              const Spacer(),
+              ElevatedButton(
+                onPressed: () => _showAddApartmentDialog(context),
+                child: const Text('新規マンション追加'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _apartments.isEmpty
+                    ? const Text('管理しているマンションはありません。')
+                    : ListView.builder(
+                        itemCount: _apartments.length,
+                        itemBuilder: (context, index) {
+                          final apartment = _apartments[index];
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            child: ListTile(
+                              title: Text(apartment['name'] ?? '名称不明'),
+                              trailing: const Icon(Icons.login),
+                              onTap: () => _showLoginDialog(context, apartment),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
 }
-
 
 class ManagerAccountScreen extends StatelessWidget {
   const ManagerAccountScreen({super.key});
