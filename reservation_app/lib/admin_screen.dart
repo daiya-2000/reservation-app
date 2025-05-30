@@ -106,38 +106,52 @@ class _AdminScreenState extends State<AdminScreen> {
   }
 }
 
-class ApartmentManagementScreen extends StatelessWidget {
+class ApartmentManagementScreen extends StatefulWidget {
   const ApartmentManagementScreen({super.key});
+
+  @override
+  State<ApartmentManagementScreen> createState() =>
+      _ApartmentManagementScreenState();
+}
+
+class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
+  List<Map<String, dynamic>> _apartments = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchApartments();
+  }
 
   Future<String?> _getCurrentCompanyAdminId() async {
     final user = FirebaseAuth.instance.currentUser;
     return user?.uid;
   }
 
-  Future<List<Map<String, dynamic>>> _fetchApartments() async {
+  Future<void> _fetchApartments() async {
     try {
-      final adminId = await _getCurrentCompanyAdminId();
-      if (adminId == null) {
-        throw Exception('管理者情報が取得できませんでした');
-      }
+      final adminId = FirebaseAuth.instance.currentUser?.uid;
+      if (adminId == null) throw Exception('管理者情報が取得できませんでした');
 
       final query = await FirebaseFirestore.instance
           .collection('apartments')
           .where('companyAdminId', isEqualTo: adminId)
           .get();
 
-      return query.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
-    } catch (e) {
-      // SnackBarを表示
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('マンションの取得に失敗しました: ${_translateError(e.toString())}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      setState(() {
+        _apartments =
+            query.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
+        _isLoading = false;
       });
-      return [];
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('マンションの取得に失敗しました: ${_translateError(e.toString())}')),
+      );
     }
   }
 
@@ -232,6 +246,8 @@ class ApartmentManagementScreen extends StatelessWidget {
 
                   Navigator.pop(dialogContext);
 
+                  await _fetchApartments();
+
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('マンションを追加しました')),
                   );
@@ -255,62 +271,52 @@ class ApartmentManagementScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          // タイトルとボタンを横並びにして右寄せ
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Spacer(),
-              const Text(
-                '管理マンション一覧',
-                style: TextStyle(fontSize: 24),
-              ),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: () => _showAddApartmentDialog(context),
-                child: const Text('新規マンション追加'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          FutureBuilder<List<Map<String, dynamic>>>(
-            future: _fetchApartments(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const CircularProgressIndicator();
-              }
-              if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return const Text('管理しているマンションはありません。');
-              }
-
-              final apartments = snapshot.data!;
-              return Expanded(
-                child: ListView.builder(
-                  itemCount: apartments.length,
-                  itemBuilder: (context, index) {
-                    final apartment = apartments[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      child: ListTile(
-                        title: Text(apartment['name'] ?? '名称不明'),
-                        trailing: const Icon(Icons.login),
-                        onTap: () => _showLoginDialog(context, apartment),
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
+Widget build(BuildContext context) {
+  return Padding(
+    padding: const EdgeInsets.all(16.0),
+    child: Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Spacer(),
+            const Text(
+              '管理マンション一覧',
+              style: TextStyle(fontSize: 24),
+            ),
+            const Spacer(),
+            ElevatedButton(
+              onPressed: () => _showAddApartmentDialog(context),
+              child: const Text('新規マンション追加'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _apartments.isEmpty
+                  ? const Text('管理しているマンションはありません。')
+                  : ListView.builder(
+                      itemCount: _apartments.length,
+                      itemBuilder: (context, index) {
+                        final apartment = _apartments[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          child: ListTile(
+                            title: Text(apartment['name'] ?? '名称不明'),
+                            trailing: const Icon(Icons.login),
+                            onTap: () => _showLoginDialog(context, apartment),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ],
+    ),
+  );
 }
+
 
 class ManagerAccountScreen extends StatelessWidget {
   const ManagerAccountScreen({super.key});

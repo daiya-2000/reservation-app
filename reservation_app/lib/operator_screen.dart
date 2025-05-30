@@ -2388,7 +2388,7 @@ class AccountScreen extends StatelessWidget {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         title: const Text(
-          '住人アカウント',
+          '住人アカウント一覧',
           style: TextStyle(
             fontSize: 24,
           ),
