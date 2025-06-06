@@ -2427,6 +2427,7 @@ class AccountScreen extends StatelessWidget {
                     return Card(
                       margin: const EdgeInsets.all(8.0),
                       child: ListTile(
+                        leading: const Icon(Icons.person),
                         title: Text(resident['name'] ?? '名前不明'),
                         subtitle:
                             Text('部屋番号: ${resident['roomNumber'] ?? '不明'}'),

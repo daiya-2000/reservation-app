@@ -398,15 +398,188 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
   }
 }
 
-class ManagerAccountScreen extends StatelessWidget {
+class ManagerAccountScreen extends StatefulWidget {
   const ManagerAccountScreen({super.key});
 
   @override
+  State<ManagerAccountScreen> createState() => _ManagerAccountScreenState();
+}
+
+class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
+  List<Map<String, dynamic>> _managers = [];
+  bool _isLoading = true;
+  final Map<String, String> _apartmentNames = {}; // apartmentId -> name
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchBuildingAdmins(context);
+    });
+  }
+
+  Future<void> _fetchBuildingAdmins(BuildContext context) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) throw Exception('ログイン情報が取得できません');
+
+      final companyAdminId = currentUser.uid;
+
+      // 管理しているマンションを取得
+      final apartmentQuery = await FirebaseFirestore.instance
+          .collection('apartments')
+          .where('companyAdminId', isEqualTo: companyAdminId)
+          .get();
+
+      final apartmentIds = <String>[];
+      for (var doc in apartmentQuery.docs) {
+        apartmentIds.add(doc.id);
+        _apartmentNames[doc.id] = doc.data()['name'] ?? '名称不明';
+      }
+
+      if (apartmentIds.isEmpty) {
+        setState(() {
+          _managers = [];
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // BuildingAdmin ユーザー取得
+      final userQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .where('role', isEqualTo: 'BuildingAdmin')
+          .where('apartment', whereIn: apartmentIds)
+          .get();
+
+      setState(() {
+        _managers =
+            userQuery.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('管理人アカウントの取得に失敗しました: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showCreateManagerDialog(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('作成ダイアログは未実装です')),
+    );
+  }
+
+  Future<void> _showManagerDetailDialog(
+      BuildContext context, Map<String, dynamic> manager) async {
+    final apartmentId = manager['apartment'];
+    final apartmentName = _apartmentNames[apartmentId] ?? '名称不明';
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('管理人情報'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('ユーザー名: ${manager['name']}'),
+              const SizedBox(height: 8),
+              Text('メールアドレス: ${manager['email']}'),
+              const SizedBox(height: 8),
+              Text('マンション: $apartmentName'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル'),
+            ),
+            OutlinedButton(
+              onPressed: () async {
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(manager['id'])
+                      .delete();
+
+                  Navigator.pop(context);
+                  await _fetchBuildingAdmins(context);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('管理人を削除しました。')),
+                  );
+                } catch (e) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('削除に失敗しました: $e')),
+                  );
+                }
+              },
+              child: const Text('削除ボタン'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        '管理人アカウント一覧',
-        style: Theme.of(context).textTheme.titleLarge,
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          // タイトル & 作成ボタン
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Spacer(),
+              const Text(
+                '管理人アカウント一覧',
+                style: TextStyle(fontSize: 24),
+              ),
+              const Spacer(),
+              ElevatedButton(
+                onPressed: () => _showCreateManagerDialog(context),
+                child: const Text('新規アカウント作成'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _managers.isEmpty
+                    ? const Center(child: Text('管理しているマンションの管理人が見つかりません'))
+                    : ListView.builder(
+                        itemCount: _managers.length,
+                        itemBuilder: (context, index) {
+                          final manager = _managers[index];
+                          final apartmentName =
+                              _apartmentNames[manager['apartment']] ?? '名称不明';
+                          return Card(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 8, horizontal: 4),
+                            child: ListTile(
+                              leading: const Icon(Icons.person),
+                              title: Text(manager['name'] ?? '名前未設定'),
+                              subtitle: Text(manager['email'] ?? ''),
+                              trailing: const Icon(Icons.arrow_forward_ios),
+                              onTap: () =>
+                                  _showManagerDetailDialog(context, manager),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
       ),
     );
   }
