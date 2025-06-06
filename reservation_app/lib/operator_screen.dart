@@ -2231,7 +2231,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
             alignment: Alignment.centerRight,
             child: ElevatedButton(
               onPressed: _showCreatePostDialog,
-              child: const Text('新規作成ボタン'),
+              child: const Text('新規掲示板作成'),
             ),
           ),
           const SizedBox(height: 16),

@@ -69,25 +69,19 @@ class _AdminScreenState extends State<AdminScreen> {
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(Icons.apartment),
-                label: Text(
-                  '管理マンション一覧',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: Text('管理マンション一覧',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.supervisor_account),
-                label: Text(
-                  '管理人アカウント一覧',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                label: Text('管理人アカウント一覧',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.logout),
@@ -121,15 +115,13 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchApartments();
+    // context を使えるように post-frame callback に移動
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchApartments(context: context);
+    });
   }
 
-  Future<String?> _getCurrentCompanyAdminId() async {
-    final user = FirebaseAuth.instance.currentUser;
-    return user?.uid;
-  }
-
-  Future<void> _fetchApartments() async {
+  Future<void> _fetchApartments({required BuildContext context}) async {
     try {
       final adminId = FirebaseAuth.instance.currentUser?.uid;
       if (adminId == null) throw Exception('管理者情報が取得できませんでした');
@@ -139,68 +131,162 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
           .where('companyAdminId', isEqualTo: adminId)
           .get();
 
+      if (!mounted) return;
+
       setState(() {
         _apartments =
             query.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList();
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('マンションの取得に失敗しました: ${_translateError(e.toString())}')),
+          content: Text('マンションの取得に失敗しました: ${_translateError(e.toString())}'),
+          backgroundColor: Colors.red,
+        ),
       );
     }
   }
 
   void _showLoginDialog(
       BuildContext context, Map<String, dynamic> apartment) async {
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) throw Exception('ログインユーザーが見つかりません');
+    final apartmentId = apartment['id'];
+    final TextEditingController nameController =
+        TextEditingController(text: apartment['name']);
 
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${apartment['name']} に対する操作'),
+        content: const Text('以下の操作を選択してください：'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              Navigator.pushNamed(context, '/operator_dashboard',
+                  arguments: apartmentId);
+            },
+            child: const Text('ログイン'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _showEditApartmentDialog(context, apartmentId, nameController);
+            },
+            child: const Text('編集'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _showDeleteApartmentDialog(context, apartmentId);
+            },
+            child: const Text('削除'),
+          ),
+        ],
+      ),
+    );
+  }
 
-      final role = userDoc.data()?['role'];
-      if (role != 'CompanyAdmin') throw Exception('権限がありません');
+  void _showEditApartmentDialog(BuildContext context, String apartmentId,
+      TextEditingController controller) {
+    final parentContext = context;
 
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('${apartment['name']} にログイン'),
-          content: const Text('このマンションの管理者画面にログインしますか？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('キャンセル'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(
-                  context,
-                  '/operator_dashboard',
-                  arguments: apartment['id'],
+    showDialog(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('マンション名を編集'),
+        content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(labelText: '新しいマンション名')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = controller.text.trim();
+              Navigator.pop(dialogContext); // ダイアログを先に閉じる
+
+              if (newName.isEmpty) {
+                ScaffoldMessenger.of(parentContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('マンション名を入力してください'),
+                    backgroundColor: Colors.orange,
+                  ),
                 );
-              },
-              child: const Text('ログイン'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('ログインに失敗しました: ${_translateError(e.toString())}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
+                return;
+              }
+
+              try {
+                await FirebaseFirestore.instance
+                    .collection('apartments')
+                    .doc(apartmentId)
+                    .update({'name': newName});
+                await _fetchApartments(context: parentContext);
+                ScaffoldMessenger.of(parentContext).showSnackBar(
+                  const SnackBar(content: Text('マンション名を更新しました')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(parentContext).showSnackBar(
+                  SnackBar(
+                    content: Text('更新に失敗しました: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('更新'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteApartmentDialog(BuildContext context, String apartmentId) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('マンション削除の確認'),
+        content: const Text('このマンションを削除しますか？元に戻せません。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              try {
+                await FirebaseFirestore.instance
+                    .collection('apartments')
+                    .doc(apartmentId)
+                    .delete();
+                await _fetchApartments(context: context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('マンションを削除しました')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('削除に失敗しました: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+            },
+            child: const Text('削除'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showAddApartmentDialog(BuildContext context) async {
@@ -217,12 +303,13 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('キャンセル'),
-            ),
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('キャンセル')),
             ElevatedButton(
               onPressed: () async {
                 final name = _nameController.text.trim();
+                Navigator.pop(dialogContext);
+
                 if (name.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -244,15 +331,11 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
                     'companyAdminId': adminId,
                   });
 
-                  Navigator.pop(dialogContext);
-
-                  await _fetchApartments();
-
+                  await _fetchApartments(context: context);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('マンションを追加しました')),
                   );
                 } catch (e) {
-                  Navigator.pop(dialogContext);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
@@ -280,10 +363,7 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Spacer(),
-              const Text(
-                '管理マンション一覧',
-                style: TextStyle(fontSize: 24),
-              ),
+              const Text('管理マンション一覧', style: TextStyle(fontSize: 24)),
               const Spacer(),
               ElevatedButton(
                 onPressed: () => _showAddApartmentDialog(context),
