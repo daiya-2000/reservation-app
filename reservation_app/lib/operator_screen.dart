@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 // 画像選択 + Firebase Storage
@@ -2359,18 +2360,25 @@ class AccountScreen extends StatelessWidget {
             ),
             OutlinedButton(
               onPressed: () async {
+                final uid = resident['id'] as String;
                 try {
-                  await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(resident['id'])
-                      .delete();
-                  Navigator.pop(context);
+                  // Cloud Function 呼び出しに差し替え
+                  final functions =
+                      FirebaseFunctions.instanceFor(region: 'us-central1');
+                  final callable = functions.httpsCallable('deleteUserAccount');
+                  final result =
+                      await callable.call(<String, dynamic>{'uid': uid});
+
+                  if (result.data['success'] == true) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('住人アカウントを削除しました。')),
+                    );
+                    // もしリスト再取得が必要なら、StatefulWidget化して setState で _fetchResidents を再実行してください
+                  }
+                } on FirebaseFunctionsException catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('住人を削除しました。')),
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('エラー: $e')),
+                    SnackBar(content: Text('削除に失敗しました: ${e.message}')),
                   );
                 }
               },

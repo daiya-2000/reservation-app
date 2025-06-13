@@ -51,7 +51,8 @@
       ],
       "predeploy": [
         "npm --prefix \"$RESOURCE_DIR\" run lint"
-      ]
+      ],
+      "runtime": "nodejs18"
     }
   ]
 }

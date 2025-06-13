@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -414,24 +415,24 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchBuildingAdmins(context);
+      _fetchBuildingAdmins();
     });
   }
 
-  Future<void> _fetchBuildingAdmins(BuildContext context) async {
+  Future<void> _fetchBuildingAdmins() async {
+    setState(() => _isLoading = true);
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) throw Exception('ログイン情報が取得できません');
 
       final companyAdminId = currentUser.uid;
-
-      // 管理しているマンションを取得
       final apartmentQuery = await FirebaseFirestore.instance
           .collection('apartments')
           .where('companyAdminId', isEqualTo: companyAdminId)
           .get();
 
       final apartmentIds = <String>[];
+      _apartmentNames.clear();
       for (var doc in apartmentQuery.docs) {
         apartmentIds.add(doc.id);
         _apartmentNames[doc.id] = doc.data()['name'] ?? '名称不明';
@@ -445,7 +446,6 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
         return;
       }
 
-      // BuildingAdmin ユーザー取得
       final userQuery = await FirebaseFirestore.instance
           .collection('users')
           .where('role', isEqualTo: 'BuildingAdmin')
@@ -458,9 +458,8 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('管理人アカウントの取得に失敗しました: $e'),
@@ -470,20 +469,101 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
     }
   }
 
-  void _showCreateManagerDialog(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('作成ダイアログは未実装です')),
+  /// ← ここを必ずクラス内に追加！
+  void _showCreateManagerDialog(BuildContext parentContext) {
+    final nameController = TextEditingController();
+    final passwordController = TextEditingController();
+    String? selectedApartmentId;
+
+    showDialog(
+      context: parentContext,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('新規管理人アカウント作成'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: '名前'),
+              ),
+              TextField(
+                controller: passwordController,
+                decoration: const InputDecoration(labelText: 'パスワード'),
+                obscureText: true,
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(labelText: 'マンションを選択'),
+                items: _apartmentNames.entries
+                    .map((e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Text(e.value),
+                        ))
+                    .toList(),
+                onChanged: (v) => selectedApartmentId = v,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                final password = passwordController.text.trim();
+                final apartmentId = selectedApartmentId;
+                if (name.isEmpty || password.isEmpty || apartmentId == null) {
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('全ての項目を入力してください'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext);
+
+                try {
+                  final functions =
+                      FirebaseFunctions.instanceFor(region: 'us-central1');
+                  final callable =
+                      functions.httpsCallable('createManagerAccount');
+                  final result = await callable.call({
+                    'name': name,
+                    'email': '$name@example.com',
+                    'password': password,
+                    'apartmentId': apartmentId,
+                  });
+                  if (result.data['success'] == true) {
+                    await _fetchBuildingAdmins();
+                    ScaffoldMessenger.of(parentContext).showSnackBar(
+                      const SnackBar(content: Text('管理人アカウントを作成しました')),
+                    );
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(parentContext).showSnackBar(
+                    SnackBar(content: Text('作成に失敗しました: $e')),
+                  );
+                }
+              },
+              child: const Text('作成'),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  Future<void> _showManagerDetailDialog(
-      BuildContext context, Map<String, dynamic> manager) async {
-    final apartmentId = manager['apartment'];
-    final apartmentName = _apartmentNames[apartmentId] ?? '名称不明';
+  void _showManagerDetailDialog(
+      BuildContext parentContext, Map<String, dynamic> manager) {
+    final apartmentName = _apartmentNames[manager['apartment']] ?? '名称不明';
 
     showDialog(
-      context: context,
-      builder: (context) {
+      context: parentContext,
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('管理人情報'),
           content: Column(
@@ -498,31 +578,44 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('キャンセル'),
             ),
             OutlinedButton(
               onPressed: () async {
+                Navigator.pop(dialogContext);
+                final uid = manager['id'] as String;
                 try {
-                  await FirebaseFirestore.instance
-                      .collection('users')
-                      .doc(manager['id'])
-                      .delete();
+                  final functions =
+                      FirebaseFunctions.instanceFor(region: 'us-central1');
+                  final callable =
+                      functions.httpsCallable('deleteManagerAccount');
+                  final result = await callable.call({'uid': uid});
 
-                  Navigator.pop(context);
-                  await _fetchBuildingAdmins(context);
+                  if (result.data['success'] == true) {
+                    // 2) データ再取得
+                    await _fetchBuildingAdmins();
 
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('管理人を削除しました。')),
-                  );
+                    // 3) 次のフレームでスナックバーを表示
+                    if (!mounted) return;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('管理人アカウントを削除しました。'),
+                        ),
+                      );
+                    });
+                  }
                 } catch (e) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('削除に失敗しました: $e')),
-                  );
+                  if (!mounted) return;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('削除に失敗しました: $e')),
+                    );
+                  });
                 }
               },
-              child: const Text('削除ボタン'),
+              child: const Text('削除'),
             ),
           ],
         );
