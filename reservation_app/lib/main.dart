@@ -7,7 +7,6 @@ import 'firebase_options.dart';
 
 import 'splash_screen.dart'; // ✅ 新たに追加
 import 'login_screen.dart';
-import 'profile_screen.dart';
 import 'main_screen.dart';
 import 'admin_screen.dart';
 import 'operator_screen.dart';
@@ -32,7 +31,6 @@ class MyApp extends StatelessWidget {
       routes: {
         '/splash': (context) => const SplashScreen(), // ✅ スプラッシュルートを追加
         '/login': (context) => const LoginScreen(),
-        '/profile': (context) => const ProfileScreen(),
         '/main': (context) => const MainScreen(),
         '/admin_dashboard': (context) => const AdminScreen(),
         '/operator_dashboard': (context) => const OperatorScreen(),
