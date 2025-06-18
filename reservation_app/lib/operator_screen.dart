@@ -30,10 +30,11 @@ class _OperatorScreenState extends State<OperatorScreen> {
   bool _isFirstBuild = true; // ★ 初回だけ実行するためのフラグ
 
   List<Widget> get _pages => [
-        HomeScreen(apartmentId: _apartmentId ?? ''),
-        FacilityCalendarScreen(apartmentId: _apartmentId ?? ''),
-        BulletinBoardScreen(apartmentId: _apartmentId ?? ''),
-        AccountScreen(apartmentId: _apartmentId ?? ''),
+        HomeScreen(apartmentId: _apartmentId!),
+        FacilityCalendarScreen(apartmentId: _apartmentId!),
+        BulletinBoardScreen(apartmentId: _apartmentId!),
+        AccountScreen(apartmentId: _apartmentId!),
+        ProfileScreen(),
       ];
 
   @override
@@ -92,7 +93,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
           NavigationRail(
             selectedIndex: _selectedIndex,
             onDestinationSelected: (int index) async {
-              if (index == 4) {
+              if (index == 5) {
                 final shouldLogout = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
@@ -155,6 +156,14 @@ class _OperatorScreenState extends State<OperatorScreen> {
               NavigationRailDestination(
                 icon: Icon(Icons.account_circle),
                 label: Text('住人アカウント一覧',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.person),
+                label: Text('プロフィール',
                     style: TextStyle(
                         fontSize: 14,
                         color: Colors.white,
@@ -2447,6 +2456,241 @@ class AccountScreen extends StatelessWidget {
                 );
               },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ProfileScreen extends StatelessWidget {
+  const ProfileScreen({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: Text('ログインが必要です'));
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          // タイトル
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Spacer(),
+              Text('プロフィール', style: TextStyle(fontSize: 24)),
+              Spacer(), // 中央寄せ用
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // メールを中央テキストで表示
+          Center(
+            child: Text(
+              'メール: ${user.email}',
+              style: const TextStyle(fontSize: 18),
+            ),
+          ),
+          const SizedBox(height: 24),
+          // メール変更
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 2,
+            child: ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('メールアドレスを変更'),
+              onTap: () => _changeEmail(context),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // パスワード変更
+          Card(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            elevation: 2,
+            child: ListTile(
+              leading: const Icon(Icons.lock),
+              title: const Text('パスワードを変更'),
+              onTap: () => _changePassword(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _changeEmail(BuildContext context) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final pwdCtl = TextEditingController();
+    final newCtl = TextEditingController();
+    final confirmCtl = TextEditingController();
+
+    // 1) 再認証ダイアログ
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('メール変更'),
+        content: TextField(
+          controller: pwdCtl,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: '現在のパスワード'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('次へ')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final cred = EmailAuthProvider.credential(
+        email: user.email!,
+        password: pwdCtl.text.trim(),
+      );
+      await user.reauthenticateWithCredential(cred);
+    } catch (_) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('認証失敗')));
+      return;
+    }
+
+    // 2) 新メール入力ダイアログ
+    await showDialog<void>(
+      context: context,
+      builder: (ctx2) => AlertDialog(
+        title: const Text('新しいメールアドレス'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: newCtl,
+                decoration: const InputDecoration(labelText: '新メール')),
+            TextField(
+                controller: confirmCtl,
+                decoration: const InputDecoration(labelText: '確認用')),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx2), child: const Text('取消')),
+          ElevatedButton(
+            onPressed: () async {
+              if (newCtl.text.trim() != confirmCtl.text.trim()) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('メールが一致しません')));
+                return;
+              }
+              try {
+                await user.verifyBeforeUpdateEmail(newCtl.text.trim());
+                Navigator.pop(ctx2);
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('確認メールを送信しました')));
+              } catch (e) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text('エラー: $e')));
+              }
+            },
+            child: const Text('送信'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _changePassword(BuildContext context) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final pwdCtl = TextEditingController();
+    final newCtl = TextEditingController();
+    final confirmCtl = TextEditingController();
+
+    // 1) 再認証ダイアログ
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('パスワード変更'),
+        content: TextField(
+          controller: pwdCtl,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: '現在のパスワード'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('次へ')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final cred = EmailAuthProvider.credential(
+        email: user.email!,
+        password: pwdCtl.text.trim(),
+      );
+      await user.reauthenticateWithCredential(cred);
+    } catch (_) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('認証失敗')));
+      return;
+    }
+
+    // 2) 新パスワード入力ダイアログ
+    await showDialog<void>(
+      context: context,
+      builder: (ctx2) => AlertDialog(
+        title: const Text('新しいパスワード'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+                controller: newCtl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '新パスワード')),
+            TextField(
+                controller: confirmCtl,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: '確認用パスワード')),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx2), child: const Text('取消')),
+          ElevatedButton(
+            onPressed: () async {
+              if (newCtl.text.trim() != confirmCtl.text.trim()) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('パスワードが一致しません')));
+                return;
+              }
+              try {
+                await user.updatePassword(newCtl.text.trim());
+                Navigator.pop(ctx2);
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('パスワードを更新しました')));
+              } catch (e) {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(SnackBar(content: Text('エラー: $e')));
+              }
+            },
+            child: const Text('保存'),
           ),
         ],
       ),
