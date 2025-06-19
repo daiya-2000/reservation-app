@@ -476,6 +476,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       final dateOnly =
           DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
 
+      // ① まず予約データを書き込み
       await FirebaseFirestore.instance.collection('reservations').add({
         'date': Timestamp.fromDate(dateOnly),
         'facilityId': widget.facility['id'],
@@ -484,7 +485,18 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
         'times': timesToReserve,
       });
 
-      // 予約が完了したら再読み込み
+      // ② 通知コレクションにも「予約完了」通知を追加
+      final facilityName = widget.facility['name'] ?? '施設';
+      final dateLabel = "${selectedDay.month}/${selectedDay.day}";
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'message': "「$facilityName」を$dateLabel ${startTime}～$endTime に予約しました。",
+        'timestamp': Timestamp.now(),
+        'read': false,
+        'type': 'reservation_confirm', // 任意：通知種別
+        'recipients': [userId], // ← このユーザーだけに届く
+      });
+
+      // ③ 画面を再読み込み
       await _fetchReservationStatusForWeek(_selectedDate);
     } catch (e) {
       print("Error reserving time: $e");
