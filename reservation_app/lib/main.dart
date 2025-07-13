@@ -1,3 +1,6 @@
+// main.dart
+
+import 'dart:io' show Platform;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -14,20 +17,17 @@ import 'main_screen.dart';
 import 'admin_screen.dart';
 import 'operator_screen.dart';
 
-/// バックグラウンドでプッシュ通知を受け取ったときのハンドラー
+/// バックグラウンドでプッシュ通知を受け取ったとき
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // 必要ならここで flutter_local_notifications を使って通知表示
 }
 
-/// flutter_local_notifications 用プラグインインスタンス
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
-/// Android の通知チャネル
 const AndroidNotificationChannel channel = AndroidNotificationChannel(
-  'high_importance_channel', // 任意のID
-  '高優先度通知', // ユーザーに見える名前
+  'high_importance_channel',
+  '高優先度通知',
   description: '重要な通知用チャネル',
   importance: Importance.high,
 );
@@ -36,25 +36,25 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // バックグラウンドメッセージハンドラー登録
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // flutter_local_notifications の初期化
   const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-  const iosInit = IOSInitializationSettings();
+  final initSettings = kIsWeb
+      ? const InitializationSettings(android: androidInit)
+      : const InitializationSettings(
+          android: androidInit,
+          iOS: DarwinInitializationSettings(),
+          macOS: DarwinInitializationSettings(),
+        );
+
   await flutterLocalNotificationsPlugin.initialize(
-    const InitializationSettings(android: androidInit, iOS: iosInit),
-    onSelectNotification: (payload) async {
-      // ユーザーが通知をタップしたときの処理
-      if (payload != null) {
-        // たとえば、payload に通知ドキュメントIDを渡して詳細画面へ
-        Navigator.of(navigatorKey.currentContext!)
-            .pushNamed('/notification_detail', arguments: payload);
-      }
+    initSettings,
+    onDidReceiveNotificationResponse: (NotificationResponse resp) {
+      Navigator.of(navigatorKey.currentContext!)
+          .pushNamed('/notification_detail');
     },
   );
 
-  // Android ではチャネルを作成
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
@@ -63,8 +63,6 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
-/// グローバルな navigatorKey を用意しておくと、
-/// 通知タップ時にどこからでも Navigator が使える
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 class MyApp extends StatefulWidget {
@@ -82,10 +80,10 @@ class _MyAppState extends State<MyApp> {
     _setupFCM();
   }
 
-  void _setupFCM() async {
+  Future<void> _setupFCM() async {
     _messaging = FirebaseMessaging.instance;
 
-    // iOS の通知権限をリクエスト
+    // 通知の権限リクエスト
     final settings = await _messaging.requestPermission(
       alert: true,
       badge: true,
@@ -93,40 +91,65 @@ class _MyAppState extends State<MyApp> {
     );
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-      // デバイストークンを取得して Firestore に保存
-      final token = await _messaging.getToken();
-      if (token != null) {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .update({'fcmToken': token});
+      // iOS では APNs トークンを先に取ってみる（例外許容）
+      if (!kIsWeb && Platform.isIOS) {
+        try {
+          final apnsToken = await _messaging.getAPNSToken();
+          debugPrint('APNS token: $apnsToken');
+        } catch (e) {
+          debugPrint('APNS token not available: $e');
         }
       }
 
+      // FCM トークン取得（シミュレータでも例外で落ちないように try/catch）
+      String? fcmToken;
+      try {
+        fcmToken = await _messaging.getToken();
+        debugPrint('FCM token: $fcmToken');
+      } catch (e) {
+        debugPrint('Failed to get FCM token: $e');
+      }
+
+      // Firestore に保存
+      final user = FirebaseAuth.instance.currentUser;
+      if (fcmToken != null && user != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .update({'fcmToken': fcmToken});
+      }
+
+      // トークン更新時も同様に
+      // トークン更新時も同様に
       FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .update({'fcmToken': newToken});
+        try {
+          final u = FirebaseAuth.instance.currentUser;
+          if (u != null) {
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(u.uid)
+                .update({'fcmToken': newToken});
+          }
+        } catch (e) {
+          debugPrint('Failed to refresh FCM token: $e');
         }
       });
 
-      // "all" 向け Topic にサブスクライブ
-      await _messaging.subscribeToTopic('all');
+      // topic subscribe は失敗してもクラッシュさせない
+      try {
+        await _messaging.subscribeToTopic('all');
+      } catch (e) {
+        debugPrint('Failed to subscribe to topic: $e');
+      }
 
-      // フォアグラウンド通知のハンドリング
       FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
-        final notification = msg.notification;
-        final android = msg.notification?.android;
-        if (notification != null && android != null) {
+        final n = msg.notification;
+        final a = msg.notification?.android;
+        if (n != null && a != null) {
           flutterLocalNotificationsPlugin.show(
-            notification.hashCode,
-            notification.title,
-            notification.body,
+            n.hashCode,
+            n.title,
+            n.body,
             NotificationDetails(
               android: AndroidNotificationDetails(
                 channel.id,
@@ -134,20 +157,15 @@ class _MyAppState extends State<MyApp> {
                 channelDescription: channel.description,
                 icon: '@mipmap/ic_launcher',
               ),
-              iOS: IOSNotificationDetails(),
+              iOS: kIsWeb ? null : const DarwinNotificationDetails(),
+              macOS: kIsWeb ? null : const DarwinNotificationDetails(),
             ),
-            payload: msg.data['docId'], // 通知ドキュメントIDなど
           );
         }
       });
 
-      // 通知タップ（アプリがバックグラウンド or 終了状態）で起動したとき
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage msg) {
-        final docId = msg.data['docId'];
-        if (docId != null) {
-          navigatorKey.currentState
-              ?.pushNamed('/notification_detail', arguments: docId);
-        }
+        navigatorKey.currentState?.pushNamed('/notification_detail');
       });
     }
   }
@@ -159,17 +177,12 @@ class _MyAppState extends State<MyApp> {
       title: 'マンション予約管理アプリ',
       initialRoute: '/splash',
       routes: {
-        '/splash': (context) => const SplashScreen(),
-        '/login': (context) => const LoginScreen(),
-        '/main': (context) => const MainScreen(),
-        '/admin_dashboard': (context) => const AdminScreen(),
-        '/operator_dashboard': (context) => const OperatorScreen(),
-        // 通知詳細画面のルート例
-        '/notification_detail': (context) {
-          final docId = ModalRoute.of(context)!.settings.arguments as String;
-          // ここで docId を受け取り、Firestore から通知内容をフェッチして表示する画面へ
-          return NotificationDetailScreen(notificationId: docId);
-        },
+        '/splash': (c) => const SplashScreen(),
+        '/login': (c) => const LoginScreen(),
+        '/main': (c) => const MainScreen(),
+        '/admin_dashboard': (c) => const AdminScreen(),
+        '/operator_dashboard': (c) => const OperatorScreen(),
+        '/notification_detail': (c) => const MainScreen(initialTabIndex: 3),
       },
       locale: const Locale('ja'),
       localizationsDelegates: const [
@@ -177,9 +190,7 @@ class _MyAppState extends State<MyApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('ja', ''),
-      ],
+      supportedLocales: const [Locale('ja')],
       theme: ThemeData(primarySwatch: Colors.blue),
     );
   }

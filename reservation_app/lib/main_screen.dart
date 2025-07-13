@@ -1,22 +1,26 @@
+// main_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'home_tab.dart'; // ホームタブの画面
-import 'reservation_tab.dart'; // 施設予約タブの画面
-import 'bulletin_tab.dart'; // 掲示板タブの画面
-import 'notification_tab.dart'; // ← 通知タブの画面をインポート
+import 'home_tab.dart';
+import 'reservation_tab.dart';
+import 'bulletin_tab.dart';
+import 'notification_tab.dart';
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({Key? key}) : super(key: key);
+  final int initialTabIndex;
+
+  const MainScreen({Key? key, this.initialTabIndex = 0}) : super(key: key);
 
   @override
   _MainScreenState createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex;
 
-  // 順番は「施設予約」「掲示板」「通知」「マイページ」
+  // タブ順：「施設予約」「掲示板」「マイページ」「通知」
   final List<Widget> _screens = [
     const ReservationTab(),
     const BulletinTab(),
@@ -25,8 +29,13 @@ class _MainScreenState extends State<MainScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialTabIndex;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 毎回最新のユーザーIDを取得
     final userId = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     return Scaffold(
@@ -49,7 +58,6 @@ class _MainScreenState extends State<MainScreen> {
             label: 'マイページ',
           ),
           BottomNavigationBarItem(
-            // StreamBuilderで未読件数を監視してバッジ表示
             icon: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('notifications')
