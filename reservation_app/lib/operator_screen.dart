@@ -1930,12 +1930,21 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     });
   }
 
+  // --- _showCreatePostDialog() の冒頭にもガードを追加 ---
   void _showCreatePostDialog() {
+    // 既に100件以上なら警告だけ出して戻る
+    if (_posts.length >= 100) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('投稿は最大100件までです')),
+      );
+      return;
+    }
+
     final titleController = TextEditingController();
     final bodyController = TextEditingController();
     PlatformFile? selectedPdfFile;
     String? selectedPdfName;
-    bool isPdfTooLarge = false; // ← 追加
+    bool isPdfTooLarge = false;
 
     showDialog(
       context: context,
@@ -2288,6 +2297,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     );
   }
 
+  // --- build() 内の該当部分 ---
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -2301,15 +2311,32 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
               style: TextStyle(fontSize: 24),
             ),
           ),
+          const SizedBox(height: 8),
+
+          // ← 追加：投稿数の表示
+          Center(
+            child: Text(
+              '投稿数: ${_posts.length}/100',
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          ),
           const SizedBox(height: 12),
+
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton(
-              onPressed: _showCreatePostDialog,
+              // 投稿数が100以上なら無効化
+              onPressed: _posts.length >= 100
+                  ? null
+                  : () {
+                      _showCreatePostDialog();
+                    },
               child: const Text('新規掲示板作成'),
             ),
           ),
           const SizedBox(height: 16),
+
+          // （以下、既存のリスト表示…）
           Expanded(
             child: _posts.isEmpty
                 ? const Center(child: Text('まだ掲示はありません'))
