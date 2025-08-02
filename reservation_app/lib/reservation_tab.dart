@@ -1,24 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'facility_detail_screen.dart'; // 施設詳細画面をインポート
+import 'facility_detail_screen.dart';
 
 class ReservationTab extends StatelessWidget {
-  const ReservationTab({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
 
+  const ReservationTab({
+    Key? key,
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+  })  : auth = auth ?? FirebaseAuth.instance,
+        firestore = firestore ?? FirebaseFirestore.instance,
+        super(key: key);
+
+  @override
   Future<String?> _getUserApartmentId() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = auth.currentUser;
     if (user == null) return null;
 
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-    return userDoc['apartment']; // ユーザーに関連付けられたマンションID
+    final userDoc = await firestore.collection('users').doc(user.uid).get();
+    return userDoc.data()?['apartment'];
   }
 
+  @override
   Future<List<Map<String, dynamic>>> _getFacilities(String apartmentId) async {
-    final querySnapshot = await FirebaseFirestore.instance
+    final querySnapshot = await firestore
         .collection('facilities')
         .where('apartment_id', isEqualTo: apartmentId)
         .get();
@@ -26,7 +34,7 @@ class ReservationTab extends StatelessWidget {
     return querySnapshot.docs
         .map((doc) => {
               'id': doc.id,
-              ...doc.data() as Map<String, dynamic>,
+              ...doc.data(),
             })
         .toList();
   }
@@ -82,13 +90,11 @@ class ReservationTab extends StatelessWidget {
                   final facility = facilities[index];
                   return GestureDetector(
                     onTap: () {
-                      // 詳細画面へ遷移
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => FacilityDetailScreen(
-                            facility: facility,
-                          ),
+                          builder: (context) =>
+                              FacilityDetailScreen(facility: facility),
                         ),
                       );
                     },
