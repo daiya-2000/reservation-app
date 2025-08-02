@@ -74,8 +74,11 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
       for (final doc in reservationSnapshot.docs) {
         final List<String> times = List<String>.from(doc['times'] ?? []);
-        for (int i = 0; i < times.length - 1; i++) {
-          dailyStatus[times[i]] = true; // 予約済み → ×
+        // for (int i = 0; i < times.length - 1; i++) {
+        //   dailyStatus[times[i]] = true; // 予約済み → ×
+        // }
+        for (final time in times) {
+          dailyStatus[time] = true;
         }
       }
 
@@ -104,6 +107,47 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       _unavailableDateSet = unavailableMap.keys.toSet();
       _isLoading = false;
     });
+  }
+
+  Future<bool> _hasConflictingReservations(DateTime startDate, String startTime,
+      DateTime endDate, String endTime) async {
+    final facilityId = widget.facility['id'];
+    DateTime day = DateTime(startDate.year, startDate.month, startDate.day);
+    final DateTime lastDay = DateTime(endDate.year, endDate.month, endDate.day);
+
+    while (!day.isAfter(lastDay)) {
+      List<String> timeRange;
+
+      if (isSameDate(day, startDate) && isSameDate(day, endDate)) {
+        timeRange = _generateTimeRange(startTime, endTime);
+      } else if (isSameDate(day, startDate)) {
+        timeRange = _generateTimeRange(startTime, "23:30");
+      } else if (isSameDate(day, endDate)) {
+        timeRange = _generateTimeRange("00:00", endTime);
+      } else {
+        timeRange = _generateTimeRange("00:00", "23:30");
+      }
+
+      final dateOnly = DateTime(day.year, day.month, day.day);
+      final snapshot = await FirebaseFirestore.instance
+          .collection('reservations')
+          .where('facilityId', isEqualTo: facilityId)
+          .where('date', isEqualTo: Timestamp.fromDate(dateOnly))
+          .get();
+
+      for (final doc in snapshot.docs) {
+        final reservedTimes = List<String>.from(doc['times'] ?? []);
+        for (final t in reservedTimes) {
+          if (timeRange.contains(t)) {
+            return true; // かぶってる
+          }
+        }
+      }
+
+      day = day.add(const Duration(days: 1));
+    }
+
+    return false; // すべてOK
   }
 
   void _changeWeek(int days) {
@@ -400,46 +444,82 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
   }
 
   void _showReservationDialog(DateTime selectedDay, String startTime) async {
-    String _selectedEndTime = startTime;
-    final endTimeOptions = _generateEndTimeOptions(selectedDay, startTime);
-    final dateString =
-        "${selectedDay.month}/${selectedDay.day} (${_getWeekday(selectedDay.weekday)})";
+    // 初期値
+    DateTime selectedEndDate = selectedDay;
+    String selectedEndTime = startTime;
+
+    // 終了時刻候補を生成（同じ日なら開始時刻以降、別の日なら 00:00～23:30）
+    List<String> _getEndTimeOptions(DateTime day, String baseTime) {
+      // 「day」が開始日(selectedDay)と同じなら開始時刻以降、
+      // 違う日なら深夜0時以降をすべて表示
+      final bool isSameStartDay = day.year == selectedDay.year &&
+          day.month == selectedDay.month &&
+          day.day == selectedDay.day;
+
+      final String start = isSameStartDay ? baseTime : "00:00";
+      const String endLimit = "23:30";
+      return _generateTimeRange(start, endLimit);
+    }
 
     await showDialog(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(builder: (context, setState) {
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
           return AlertDialog(
             title: const Text("予約時間の選択"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center, // ← 追加
               children: [
-                Text("日付: $dateString"),
-                const SizedBox(height: 8),
+                // 開始情報
+                Text(
+                    "開始日: ${selectedDay.month}/${selectedDay.day} (${_getWeekday(selectedDay.weekday)})"),
                 Text("開始時刻: $startTime"),
+                const SizedBox(height: 12),
+
+                // ➊ 終了日ピッカー
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text("終了日: "),
+                    TextButton(
+                      onPressed: () async {
+                        final dt = await showDatePicker(
+                          context: context,
+                          initialDate: selectedEndDate,
+                          firstDate: selectedDay,
+                          lastDate: selectedDay.add(const Duration(days: 30)),
+                        );
+                        if (dt != null) {
+                          setState(() => selectedEndDate = dt);
+                          // 終了時刻も念のためリセット
+                          final opts = _getEndTimeOptions(dt, startTime);
+                          selectedEndTime =
+                              opts.contains(startTime) ? startTime : opts.first;
+                        }
+                      },
+                      child: Text(
+                          "${selectedEndDate.month}/${selectedEndDate.day}"),
+                    ),
+                  ],
+                ),
+
                 const SizedBox(height: 8),
+
+                // ➋ 終了時刻ドロップダウン
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text("終了時刻: "),
                     const SizedBox(width: 8),
                     DropdownButton<String>(
-                      value: _selectedEndTime,
-                      items: endTimeOptions.map((time) {
-                        return DropdownMenuItem<String>(
-                          value: time,
-                          child: Text(
-                            time,
-                            textAlign: TextAlign.center,
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _selectedEndTime = value;
-                          });
-                        }
+                      value: selectedEndTime,
+                      items: _getEndTimeOptions(selectedEndDate, startTime)
+                          .map(
+                              (t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (v) {
+                        if (v != null) setState(() => selectedEndTime = v);
                       },
                     ),
                   ],
@@ -448,13 +528,27 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text("キャンセル"),
-              ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("キャンセル")),
               ElevatedButton(
                 onPressed: () async {
-                  await _reserveTime(selectedDay, startTime, _selectedEndTime);
-                  Navigator.of(context).pop();
+                  final hasConflict = await _hasConflictingReservations(
+                      selectedDay, startTime, selectedEndDate, selectedEndTime);
+
+                  if (hasConflict) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('他の方の予約と重複しています。カレンダーを確認してください。'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  Navigator.pop(ctx);
+                  await _reserveTimeMultiDay(
+                      selectedDay, startTime, selectedEndDate, selectedEndTime);
                 },
                 child: const Text("予約する"),
               ),
@@ -465,43 +559,71 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     );
   }
 
-  Future<void> _reserveTime(
-      DateTime selectedDay, String startTime, String endTime) async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      final userId = user?.uid ?? "unknown_user";
-      final reservedBy = user?.email ?? "unknown_email";
+  /// startDate→endDate の各日ごとに分割して予約を登録
+  Future<void> _reserveTimeMultiDay(
+    DateTime startDate,
+    String startTime,
+    DateTime endDate,
+    String endTime,
+  ) async {
+    final user = FirebaseAuth.instance.currentUser;
+    final userId = user?.uid ?? "unknown";
+    final reservedBy = user?.email ?? "unknown_email";
+    final facilityId = widget.facility['id'];
+    final facilityName = widget.facility['name'] ?? '施設';
 
-      final timesToReserve = _generateTimeRange(startTime, endTime);
-      final dateOnly =
-          DateTime(selectedDay.year, selectedDay.month, selectedDay.day);
+    DateTime normalizeDate(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
-      // ① まず予約データを書き込み
+    DateTime day = normalizeDate(startDate);
+    final DateTime lastDay = normalizeDate(endDate);
+
+    while (!day.isAfter(lastDay)) {
+      List<String> times;
+
+      if (isSameDate(day, startDate) && isSameDate(day, endDate)) {
+        times = _generateTimeRange(startTime, endTime);
+      } else if (isSameDate(day, startDate)) {
+        times = _generateTimeRange(startTime, "23:30");
+      } else if (isSameDate(day, endDate)) {
+        times = _generateTimeRange("00:00", endTime);
+      } else {
+        times = _generateTimeRange("00:00", "23:30");
+      }
+
+      print("🗓️ ${day.toIso8601String()} に登録する time: $times");
+
+      if (times.isEmpty) {
+        times = [startTime];
+      }
+
+      final dateOnly = DateTime(day.year, day.month, day.day);
+
       await FirebaseFirestore.instance.collection('reservations').add({
         'date': Timestamp.fromDate(dateOnly),
-        'facilityId': widget.facility['id'],
+        'facilityId': facilityId,
         'reservedBy': reservedBy,
         'userId': userId,
-        'times': timesToReserve,
+        'times': times,
       });
 
-      // ② 通知コレクションにも「予約完了」通知を追加
-      final facilityName = widget.facility['name'] ?? '施設';
-      final dateLabel = "${selectedDay.month}/${selectedDay.day}";
+      final labelDate = "${day.month}/${day.day}";
+      final labelTime = "${times.first}～${times.last}";
       await FirebaseFirestore.instance.collection('notifications').add({
-        'message': "「$facilityName」を$dateLabel ${startTime}～$endTime に予約しました。",
+        'message': "「$facilityName」を$labelDate $labelTime に予約しました。",
         'timestamp': Timestamp.now(),
         'read': false,
-        'type': 'reservation_confirm', // 任意：通知種別
-        'recipients': [userId], // ← このユーザーだけに届く
+        'type': 'reservation_confirm',
+        'recipients': [userId],
       });
 
-      // ③ 画面を再読み込み
-      await _fetchReservationStatusForWeek(_selectedDate);
-    } catch (e) {
-      print("Error reserving time: $e");
+      day = day.add(const Duration(days: 1));
     }
+
+    await _fetchReservationStatusForWeek(_selectedDate);
   }
+
+  bool isSameDate(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   List<String> _generateTimeRange(String startTime, String endTime) {
     final startParts = startTime.split(':');
@@ -520,12 +642,11 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     while (true) {
       final timeStr =
           "${currentHour.toString().padLeft(2, '0')}:${currentMinute.toString().padLeft(2, '0')}";
+
       result.add(timeStr);
 
-      // ループ終了条件：endTimeに到達したらそのスロットを追加して終了
-      if (currentHour == endHour && currentMinute == endMinute) {
-        break;
-      }
+      // 終了条件に達していたらループ終了（※追加後にbreak）
+      if (currentHour == endHour && currentMinute == endMinute) break;
 
       currentMinute += 30;
       if (currentMinute >= 60) {
@@ -533,10 +654,8 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
         currentMinute = 0;
       }
 
-      // 念のため（無限ループ防止）
-      if (currentHour > 23 || (currentHour == 23 && currentMinute > 30)) {
-        break;
-      }
+      // 無限ループ防止
+      if (currentHour > 23) break;
     }
 
     return result;
