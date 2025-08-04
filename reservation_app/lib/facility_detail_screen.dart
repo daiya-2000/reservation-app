@@ -4,9 +4,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class FacilityDetailScreen extends StatefulWidget {
   final Map<String, dynamic> facility;
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
 
-  const FacilityDetailScreen({Key? key, required this.facility})
-      : super(key: key);
+  const FacilityDetailScreen({
+    Key? key,
+    required this.facility,
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+  })  : firestore = firestore ?? FirebaseFirestore.instance,
+        auth = auth ?? FirebaseAuth.instance,
+        super(key: key);
 
   @override
   _FacilityDetailScreenState createState() => _FacilityDetailScreenState();
@@ -38,7 +46,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     final facilityId = widget.facility['id'];
 
     // 予約不可情報を全部取得（週の全日分をまとめて）
-    final unavailableSnapshot = await FirebaseFirestore.instance
+    final unavailableSnapshot = await widget.firestore
         .collection('facilities')
         .doc(facilityId)
         .collection('unavailable_dates')
@@ -66,7 +74,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       }
 
       // --------- 2️⃣ 予約済み時間を × にする ---------
-      final reservationSnapshot = await FirebaseFirestore.instance
+      final reservationSnapshot = await widget.firestore
           .collection('reservations')
           .where('facilityId', isEqualTo: facilityId)
           .where('date', isEqualTo: Timestamp.fromDate(dayOnly))
@@ -129,7 +137,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
       }
 
       final dateOnly = DateTime(day.year, day.month, day.day);
-      final snapshot = await FirebaseFirestore.instance
+      final snapshot = await widget.firestore
           .collection('reservations')
           .where('facilityId', isEqualTo: facilityId)
           .where('date', isEqualTo: Timestamp.fromDate(dateOnly))
@@ -566,7 +574,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
     DateTime endDate,
     String endTime,
   ) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = widget.auth.currentUser;
     final userId = user?.uid ?? "unknown";
     final reservedBy = user?.email ?? "unknown_email";
     final facilityId = widget.facility['id'];
@@ -598,7 +606,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
       final dateOnly = DateTime(day.year, day.month, day.day);
 
-      await FirebaseFirestore.instance.collection('reservations').add({
+      await widget.firestore.collection('reservations').add({
         'date': Timestamp.fromDate(dateOnly),
         'facilityId': facilityId,
         'reservedBy': reservedBy,
@@ -608,7 +616,7 @@ class _FacilityDetailScreenState extends State<FacilityDetailScreen> {
 
       final labelDate = "${day.month}/${day.day}";
       final labelTime = "${times.first}～${times.last}";
-      await FirebaseFirestore.instance.collection('notifications').add({
+      await widget.firestore.collection('notifications').add({
         'message': "「$facilityName」を$labelDate $labelTime に予約しました。",
         'timestamp': Timestamp.now(),
         'read': false,
