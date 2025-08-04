@@ -8,9 +8,11 @@ class NotificationTab extends StatefulWidget {
 
   const NotificationTab({
     Key? key,
-    required this.auth,
-    required this.firestore,
-  }) : super(key: key);
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+  })  : auth = auth ?? FirebaseAuth.instance,
+        firestore = firestore ?? FirebaseFirestore.instance,
+        super(key: key);
 
   @override
   State<NotificationTab> createState() => _NotificationTabState();

@@ -23,9 +23,9 @@ class _MainScreenState extends State<MainScreen> {
   // タブ順：「施設予約」「掲示板」「マイページ」「通知」
   final List<Widget> _screens = [
     ReservationTab(),
-    const BulletinTab(),
+    BulletinTab(),
     HomeTab(),
-    const NotificationTab(),
+    NotificationTab(),
   ];
 
   @override

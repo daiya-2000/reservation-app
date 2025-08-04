@@ -4,7 +4,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AdminScreen extends StatefulWidget {
-  const AdminScreen({Key? key}) : super(key: key);
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
+  final FirebaseFunctions functions;
+
+  const AdminScreen({
+    Key? key,
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  })  : auth = auth ?? FirebaseAuth.instance,
+        firestore = firestore ?? FirebaseFirestore.instance,
+        functions = functions ?? FirebaseFunctions.instance,
+        super(key: key);
 
   @override
   State<AdminScreen> createState() => _AdminScreenState();
@@ -13,34 +25,49 @@ class AdminScreen extends StatefulWidget {
 class _AdminScreenState extends State<AdminScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = [
-    const ApartmentManagementScreen(),
-    const ManagerAccountScreen(),
-    const ProfileScreen(),
-    const SizedBox(), // ログアウトはダミー
-  ];
+  late final FirebaseFirestore firestore;
+  late final FirebaseAuth auth;
+  late final FirebaseFunctions functions;
+
+  late final List<Widget> _pages;
+
+  @override
+  void initState() {
+    super.initState();
+    firestore = widget.firestore;
+    auth = widget.auth;
+    functions = widget.functions;
+
+    _pages = [
+      ApartmentManagementScreen(firestore: firestore, auth: auth),
+      ManagerAccountScreen(
+        firestore: firestore,
+        auth: auth,
+        functions: functions,
+      ),
+      ProfileScreen(auth: auth),
+      const SizedBox(),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ─── OperatorScreen と同じ AppBar ─────────────
       appBar: AppBar(
         title: const Text(
           'マンション管理会社ダッシュボード',
           style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
         ),
-        centerTitle: true, // タイトル中央寄せ
-        automaticallyImplyLeading: false, // 戻る矢印を消す
+        centerTitle: true,
+        automaticallyImplyLeading: false,
       ),
       body: Row(
         children: [
-          // ─── 同じデザインの NavigationRail ────────────
           NavigationRail(
             backgroundColor: Colors.blue[900],
             selectedIndex: _selectedIndex,
             onDestinationSelected: (int index) async {
               if (index == 3) {
-                // ログアウト処理
                 final ok = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
@@ -57,62 +84,51 @@ class _AdminScreenState extends State<AdminScreen> {
                   ),
                 );
                 if (ok == true) {
-                  await FirebaseAuth.instance.signOut();
+                  await auth.signOut();
                   Navigator.of(context).pushReplacementNamed('/login');
                 }
                 return;
               }
               setState(() => _selectedIndex = index);
             },
-            // ─── アイコン＆ラベルの色や表示方法 ─────────
             selectedIconTheme: const IconThemeData(color: Colors.white),
             unselectedIconTheme: const IconThemeData(color: Colors.white70),
             labelType: NavigationRailLabelType.all,
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(Icons.apartment),
-                label: Text(
-                  '管理マンション一覧',
-                  style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
-                ),
+                label: Text('管理マンション一覧',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.supervisor_account),
-                label: Text(
-                  '管理人アカウント一覧',
-                  style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
-                ),
+                label: Text('管理人アカウント一覧',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.person),
-                label: Text(
-                  'プロフィール',
-                  style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
-                ),
+                label: Text('プロフィール',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.logout),
-                label: Text(
-                  'ログアウト',
-                  style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
-                ),
+                label: Text('ログアウト',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
-
-          // ─── ページ本体 ─────────────────────────────
           Expanded(child: _pages[_selectedIndex]),
         ],
       ),
@@ -121,7 +137,14 @@ class _AdminScreenState extends State<AdminScreen> {
 }
 
 class ApartmentManagementScreen extends StatefulWidget {
-  const ApartmentManagementScreen({super.key});
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
+
+  const ApartmentManagementScreen({
+    super.key,
+    required this.firestore,
+    required this.auth,
+  });
 
   @override
   State<ApartmentManagementScreen> createState() =>
@@ -135,7 +158,6 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
   @override
   void initState() {
     super.initState();
-    // context を使えるように post-frame callback に移動
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchApartments(context: context);
     });
@@ -143,10 +165,10 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
 
   Future<void> _fetchApartments({required BuildContext context}) async {
     try {
-      final adminId = FirebaseAuth.instance.currentUser?.uid;
+      final adminId = widget.auth.currentUser?.uid;
       if (adminId == null) throw Exception('管理者情報が取得できませんでした');
 
-      final query = await FirebaseFirestore.instance
+      final query = await widget.firestore
           .collection('apartments')
           .where('companyAdminId', isEqualTo: adminId)
           .get();
@@ -160,9 +182,7 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('マンションの取得に失敗しました: ${_translateError(e.toString())}'),
@@ -233,7 +253,7 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
           ElevatedButton(
             onPressed: () async {
               final newName = controller.text.trim();
-              Navigator.pop(dialogContext); // ダイアログを先に閉じる
+              Navigator.pop(dialogContext);
 
               if (newName.isEmpty) {
                 ScaffoldMessenger.of(parentContext).showSnackBar(
@@ -246,7 +266,7 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
               }
 
               try {
-                await FirebaseFirestore.instance
+                await widget.firestore
                     .collection('apartments')
                     .doc(apartmentId)
                     .update({'name': newName});
@@ -285,7 +305,7 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
             onPressed: () async {
               Navigator.pop(dialogContext);
               try {
-                await FirebaseFirestore.instance
+                await widget.firestore
                     .collection('apartments')
                     .doc(apartmentId)
                     .delete();
@@ -341,12 +361,10 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
                 }
 
                 try {
-                  final adminId = FirebaseAuth.instance.currentUser?.uid;
+                  final adminId = widget.auth.currentUser?.uid;
                   if (adminId == null) throw Exception('管理者情報が取得できません');
 
-                  await FirebaseFirestore.instance
-                      .collection('apartments')
-                      .add({
+                  await widget.firestore.collection('apartments').add({
                     'name': name,
                     'companyAdminId': adminId,
                   });
@@ -371,6 +389,13 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
         );
       },
     );
+  }
+
+  String _translateError(String message) {
+    if (message.contains('permission-denied')) {
+      return '権限がありません';
+    }
+    return message;
   }
 
   @override
@@ -419,7 +444,15 @@ class _ApartmentManagementScreenState extends State<ApartmentManagementScreen> {
 }
 
 class ManagerAccountScreen extends StatefulWidget {
-  const ManagerAccountScreen({super.key});
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
+
+  const ManagerAccountScreen({
+    super.key,
+    required this.firestore,
+    required this.auth,
+    required FirebaseFunctions functions,
+  });
 
   @override
   State<ManagerAccountScreen> createState() => _ManagerAccountScreenState();
@@ -441,11 +474,11 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
   Future<void> _fetchBuildingAdmins() async {
     setState(() => _isLoading = true);
     try {
-      final currentUser = FirebaseAuth.instance.currentUser;
+      final currentUser = widget.auth.currentUser;
       if (currentUser == null) throw Exception('ログイン情報が取得できません');
 
       final companyAdminId = currentUser.uid;
-      final apartmentQuery = await FirebaseFirestore.instance
+      final apartmentQuery = await widget.firestore
           .collection('apartments')
           .where('companyAdminId', isEqualTo: companyAdminId)
           .get();
@@ -465,7 +498,7 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
         return;
       }
 
-      final userQuery = await FirebaseFirestore.instance
+      final userQuery = await widget.firestore
           .collection('users')
           .where('role', isEqualTo: 'BuildingAdmin')
           .where('apartment', whereIn: apartmentIds)
@@ -488,7 +521,6 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
     }
   }
 
-  /// ← ここを必ずクラス内に追加！
   void _showCreateManagerDialog(BuildContext parentContext) {
     final nameController = TextEditingController();
     final passwordController = TextEditingController();
@@ -612,10 +644,7 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
                   final result = await callable.call({'uid': uid});
 
                   if (result.data['success'] == true) {
-                    // 2) データ再取得
                     await _fetchBuildingAdmins();
-
-                    // 3) 次のフレームでスナックバーを表示
                     if (!mounted) return;
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -698,11 +727,13 @@ class _ManagerAccountScreenState extends State<ManagerAccountScreen> {
 }
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+
+  const ProfileScreen({Key? key, required this.auth}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = auth.currentUser;
     if (user == null) {
       return const Center(child: Text('ログインが必要です'));
     }
@@ -711,55 +742,40 @@ class ProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // タイトル Row（他画面と同じデザイン）
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Spacer(),
-              Text(
-                'プロフィール',
-                style: TextStyle(fontSize: 24),
-              ),
+              Text('プロフィール', style: TextStyle(fontSize: 24)),
               Spacer(),
-              // プロフィールには右側ボタン無しなので空の SizedBox
               SizedBox(width: 48),
             ],
           ),
           const SizedBox(height: 24),
-
-          // メール表示
           Center(
-            child: Text(
-              'メールアドレス: ${user.email}',
-              style: const TextStyle(fontSize: 18),
-            ),
+            child: Text('メールアドレス: ${user.email}',
+                style: const TextStyle(fontSize: 18)),
           ),
           const SizedBox(height: 24),
-
-          // メールアドレス変更
           Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 2,
             child: ListTile(
               leading: const Icon(Icons.edit),
               title: const Text('メールアドレスを変更'),
-              onTap: () => _changeEmail(context),
+              onTap: () => _changeEmail(context, user),
             ),
           ),
           const SizedBox(height: 12),
-
-          // パスワード変更
           Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             elevation: 2,
             child: ListTile(
               leading: const Icon(Icons.lock),
               title: const Text('パスワードを変更'),
-              onTap: () => _changePassword(context),
+              onTap: () => _changePassword(context, user),
             ),
           ),
         ],
@@ -767,15 +783,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _changeEmail(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
+  Future<void> _changeEmail(BuildContext context, User user) async {
     final pwdCtl = TextEditingController();
     final newCtl = TextEditingController();
     final confirmCtl = TextEditingController();
 
-    // 1) 再認証ダイアログ
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -799,9 +811,7 @@ class ProfileScreen extends StatelessWidget {
 
     try {
       final cred = EmailAuthProvider.credential(
-        email: user.email!,
-        password: pwdCtl.text.trim(),
-      );
+          email: user.email!, password: pwdCtl.text.trim());
       await user.reauthenticateWithCredential(cred);
     } catch (_) {
       ScaffoldMessenger.of(context)
@@ -809,7 +819,6 @@ class ProfileScreen extends StatelessWidget {
       return;
     }
 
-    // 2) 新メール入力ダイアログ
     await showDialog<void>(
       context: context,
       builder: (ctx2) => AlertDialog(
@@ -852,15 +861,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _changePassword(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
+  Future<void> _changePassword(BuildContext context, User user) async {
     final pwdCtl = TextEditingController();
     final newCtl = TextEditingController();
     final confirmCtl = TextEditingController();
 
-    // 1) 再認証ダイアログ
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -884,9 +889,7 @@ class ProfileScreen extends StatelessWidget {
 
     try {
       final cred = EmailAuthProvider.credential(
-        email: user.email!,
-        password: pwdCtl.text.trim(),
-      );
+          email: user.email!, password: pwdCtl.text.trim());
       await user.reauthenticateWithCredential(cred);
     } catch (_) {
       ScaffoldMessenger.of(context)
@@ -894,7 +897,6 @@ class ProfileScreen extends StatelessWidget {
       return;
     }
 
-    // 2) 新パスワード入力ダイアログ
     await showDialog<void>(
       context: context,
       builder: (ctx2) => AlertDialog(

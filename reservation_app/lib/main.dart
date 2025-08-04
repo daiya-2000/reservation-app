@@ -180,7 +180,7 @@ class _MyAppState extends State<MyApp> {
         '/splash': (c) => const SplashScreen(),
         '/login': (c) => const LoginScreen(),
         '/main': (c) => const MainScreen(),
-        '/admin_dashboard': (c) => const AdminScreen(),
+        '/admin_dashboard': (c) => AdminScreen(),
         '/operator_dashboard': (c) => const OperatorScreen(),
         '/notification_detail': (c) => const MainScreen(initialTabIndex: 3),
       },
