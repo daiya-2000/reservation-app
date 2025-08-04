@@ -4,7 +4,11 @@ import 'package:reservation_app/pdf_view_screen.dart';
 import 'package:intl/intl.dart';
 
 class BulletinTab extends StatefulWidget {
-  const BulletinTab({Key? key}) : super(key: key);
+  final FirebaseFirestore firestore;
+
+  const BulletinTab({Key? key, FirebaseFirestore? firestore})
+      : firestore = firestore ?? FirebaseFirestore.instance,
+        super(key: key);
 
   @override
   State<BulletinTab> createState() => _BulletinTabState();
@@ -22,7 +26,7 @@ class _BulletinTabState extends State<BulletinTab> {
 
   Future<void> _fetchPosts() async {
     try {
-      final snapshot = await FirebaseFirestore.instance
+      final snapshot = await widget.firestore
           .collection('bulletin_posts')
           .orderBy('createdAt', descending: true)
           .get();
