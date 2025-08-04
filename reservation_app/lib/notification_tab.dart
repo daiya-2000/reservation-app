@@ -1,10 +1,16 @@
-// notification_tab.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class NotificationTab extends StatefulWidget {
-  const NotificationTab({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
+
+  const NotificationTab({
+    Key? key,
+    required this.auth,
+    required this.firestore,
+  }) : super(key: key);
 
   @override
   State<NotificationTab> createState() => _NotificationTabState();
@@ -13,21 +19,19 @@ class NotificationTab extends StatefulWidget {
 class _NotificationTabState extends State<NotificationTab> {
   @override
   Widget build(BuildContext context) {
-    // 毎回 build 時に最新のユーザーを取得
-    final user = FirebaseAuth.instance.currentUser;
+    final user = widget.auth.currentUser;
     if (user == null) {
       return const Center(child: Text('ログインしてください'));
     }
     final userId = user.uid;
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream: widget.firestore
           .collection('notifications')
           .where('recipients', arrayContainsAny: [userId, 'all'])
           .orderBy('timestamp', descending: true)
           .snapshots(),
       builder: (context, snap) {
-        // エラー時
         if (snap.hasError) {
           return Center(
             child: Text(
@@ -36,7 +40,6 @@ class _NotificationTabState extends State<NotificationTab> {
             ),
           );
         }
-        // 読み込み中
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -67,7 +70,6 @@ class _NotificationTabState extends State<NotificationTab> {
                 style: const TextStyle(fontSize: 12),
               ),
               onTap: () {
-                // 既読フラグを立てる
                 docs[i].reference.update({'read': true});
               },
             );
