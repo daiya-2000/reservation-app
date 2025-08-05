@@ -3,7 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  final FirebaseFirestore firestore;
+  final FirebaseAuth auth;
+
+  const ProfileScreen({
+    Key? key,
+    required this.firestore,
+    required this.auth,
+  }) : super(key: key);
 
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
@@ -13,7 +20,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _roomNumberController = TextEditingController();
   String? _selectedApartment;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   Future<void> _saveProfile() async {
     if (_selectedApartment == null ||
@@ -30,9 +36,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      final user = widget.auth.currentUser;
       if (user != null) {
-        await _firestore.collection('users').doc(user.uid).set({
+        await widget.firestore.collection('users').doc(user.uid).set({
           'apartment': _selectedApartment,
           'name': _nameController.text.trim(),
           'roomNumber': _roomNumberController.text.trim(),
@@ -47,7 +53,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         );
 
-        Navigator.pushReplacementNamed(context, '/main'); // 修正されたルート名
+        Navigator.pushReplacementNamed(context, '/main');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -70,7 +76,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             FutureBuilder<QuerySnapshot>(
-              future: _firestore.collection('apartments').get(),
+              future: widget.firestore.collection('apartments').get(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());

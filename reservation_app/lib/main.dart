@@ -178,7 +178,7 @@ class _MyAppState extends State<MyApp> {
       initialRoute: '/splash',
       routes: {
         '/splash': (c) => const SplashScreen(),
-        '/login': (c) => const LoginScreen(),
+        '/login': (c) => LoginScreen(),
         '/main': (c) => const MainScreen(),
         '/admin_dashboard': (c) => AdminScreen(),
         '/operator_dashboard': (c) => const OperatorScreen(),
