@@ -3,7 +3,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
+
+  const LoginScreen({
+    Key? key,
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+  })  : auth = auth ?? FirebaseAuth.instance,
+        firestore = firestore ?? FirebaseFirestore.instance,
+        super(key: key);
 
   @override
   _LoginScreenState createState() => _LoginScreenState();
@@ -12,7 +21,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   @override
   void initState() {
@@ -21,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _checkLoginStatus() async {
-    final user = _auth.currentUser;
+    final user = widget.auth.currentUser;
     if (user != null) {
       await _navigateToRoleBasedScreen(user);
     }
@@ -37,7 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
 
     try {
-      final userCredential = await _auth.signInWithEmailAndPassword(
+      final userCredential = await widget.auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -50,27 +58,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await _navigateToRoleBasedScreen(user);
     } on FirebaseAuthException catch (e) {
-      String message;
-      switch (e.code) {
-        case 'invalid-email':
-          message = 'メールアドレスの形式が正しくありません。';
-          break;
-        case 'user-disabled':
-          message = 'このユーザーアカウントは無効化されています。';
-          break;
-        case 'user-not-found':
-          message = '登録されていないメールアドレスです。';
-          break;
-        case 'wrong-password':
-          message = 'パスワードが間違っています。';
-          break;
-        default:
-          message = 'ログインに失敗しました。 (${e.code})';
-          break;
-      }
-      _showErrorMessage(message);
+      _showErrorMessage(_getErrorMessageFromCode(e.code));
     } catch (e) {
       _showErrorMessage('予期しないエラーが発生しました。もう一度お試しください。');
+    }
+  }
+
+  String _getErrorMessageFromCode(String code) {
+    switch (code) {
+      case 'invalid-email':
+        return 'メールアドレスの形式が正しくありません。';
+      case 'user-disabled':
+        return 'このユーザーアカウントは無効化されています。';
+      case 'user-not-found':
+        return '登録されていないメールアドレスです。';
+      case 'wrong-password':
+        return 'パスワードが間違っています。';
+      default:
+        return 'ログインに失敗しました。 ($code)';
     }
   }
 
@@ -85,28 +90,21 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _navigateToRoleBasedScreen(User user) async {
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-
-    if (!userDoc.exists) {
-      throw Exception('ユーザーデータが存在しません。');
-    }
+    final userDoc =
+        await widget.firestore.collection('users').doc(user.uid).get();
 
     final role = userDoc.data()?['role'] as String?;
-    if (role == null) {
-      throw Exception('ユーザーの権限が設定されていません。');
-    }
-
     if (!mounted) return;
 
-    if (role == 'CompanyAdmin') {
-      Navigator.pushReplacementNamed(context, '/admin_dashboard');
-    } else if (role == 'BuildingAdmin') {
-      Navigator.pushReplacementNamed(context, '/operator_dashboard');
-    } else {
-      Navigator.pushReplacementNamed(context, '/main');
+    switch (role) {
+      case 'CompanyAdmin':
+        Navigator.pushReplacementNamed(context, '/admin_dashboard');
+        break;
+      case 'BuildingAdmin':
+        Navigator.pushReplacementNamed(context, '/operator_dashboard');
+        break;
+      default:
+        Navigator.pushReplacementNamed(context, '/main');
     }
   }
 
@@ -120,16 +118,19 @@ class _LoginScreenState extends State<LoginScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             TextField(
+              key: const Key('emailField'),
               controller: _emailController,
               decoration: const InputDecoration(labelText: 'Eメール'),
             ),
             TextField(
+              key: const Key('passwordField'),
               controller: _passwordController,
               decoration: const InputDecoration(labelText: 'パスワード'),
               obscureText: true,
             ),
             const SizedBox(height: 20),
             ElevatedButton(
+              key: const Key('loginButton'),
               onPressed: _login,
               child: const Text('ログイン'),
             ),
