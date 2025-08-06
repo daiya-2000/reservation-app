@@ -45,9 +45,9 @@ class _OperatorScreenState extends State<OperatorScreen> {
         ),
         FacilityCalendarScreen(
           apartmentId: _apartmentId!,
-          auth: FirebaseAuth.instance,
-          firestore: FirebaseFirestore.instance,
-          functions: FirebaseFunctions.instance,
+          auth: widget.auth,
+          firestore: widget.firestore,
+          functions: widget.functions,
         ),
         BulletinBoardScreen(
           apartmentId: _apartmentId!,
