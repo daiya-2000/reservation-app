@@ -2,6 +2,7 @@
 
 import 'dart:io' show Platform;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -73,6 +74,9 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late final FirebaseMessaging _messaging;
+  final auth = FirebaseAuth.instance;
+  final firestore = FirebaseFirestore.instance;
+  final functions = FirebaseFunctions.instance;
 
   @override
   void initState() {
@@ -179,10 +183,20 @@ class _MyAppState extends State<MyApp> {
       routes: {
         '/splash': (c) => const SplashScreen(),
         '/login': (c) => LoginScreen(),
-        '/main': (c) => const MainScreen(),
-        '/admin_dashboard': (c) => AdminScreen(),
-        '/operator_dashboard': (c) => const OperatorScreen(),
-        '/notification_detail': (c) => const MainScreen(initialTabIndex: 3),
+        '/main': (c) => MainScreen(
+              auth: auth,
+              firestore: firestore,
+              functions: functions,
+            ),
+        '/admin_dashboard': (c) => AdminScreen(), // 管理者は未修正ならそのままでOK
+        '/operator_dashboard': (c) => OperatorScreen(
+            auth: auth, firestore: firestore, functions: functions),
+        '/notification_detail': (c) => MainScreen(
+              auth: auth,
+              firestore: firestore,
+              functions: functions,
+              initialTabIndex: 3,
+            ),
       },
       locale: const Locale('ja'),
       localizationsDelegates: const [

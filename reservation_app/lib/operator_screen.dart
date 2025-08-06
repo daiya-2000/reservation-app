@@ -17,10 +17,19 @@ import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
 
 class OperatorScreen extends StatefulWidget {
-  const OperatorScreen({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
+  final FirebaseFunctions functions;
+
+  const OperatorScreen({
+    super.key,
+    required this.auth,
+    required this.firestore,
+    required this.functions,
+  });
 
   @override
-  _OperatorScreenState createState() => _OperatorScreenState();
+  State<OperatorScreen> createState() => _OperatorScreenState();
 }
 
 class _OperatorScreenState extends State<OperatorScreen> {
@@ -30,11 +39,29 @@ class _OperatorScreenState extends State<OperatorScreen> {
   bool _isFirstBuild = true; // ★ 初回だけ実行するためのフラグ
 
   List<Widget> get _pages => [
-        HomeScreen(apartmentId: _apartmentId!),
-        FacilityCalendarScreen(apartmentId: _apartmentId!),
-        BulletinBoardScreen(apartmentId: _apartmentId!),
-        AccountScreen(apartmentId: _apartmentId!),
-        ProfileScreen(),
+        HomeScreen(
+          apartmentId: _apartmentId!,
+          firestore: widget.firestore,
+        ),
+        FacilityCalendarScreen(
+          apartmentId: _apartmentId!,
+          auth: FirebaseAuth.instance,
+          firestore: FirebaseFirestore.instance,
+          functions: FirebaseFunctions.instance,
+        ),
+        BulletinBoardScreen(
+          apartmentId: _apartmentId!,
+          firestore: widget.firestore,
+        ),
+        AccountScreen(
+          apartmentId: _apartmentId!,
+          auth: widget.auth,
+          firestore: widget.firestore,
+          functions: widget.functions,
+        ),
+        ProfileScreen(
+          auth: widget.auth,
+        ),
       ];
 
   @override
@@ -50,13 +77,9 @@ class _OperatorScreenState extends State<OperatorScreen> {
         });
       } else {
         // 引数がない場合（BuildingAdminと想定）、ログインユーザーのFirestore情報から取得
-        final user = FirebaseAuth.instance.currentUser;
+        final user = widget.auth.currentUser;
         if (user != null) {
-          FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .get()
-              .then((doc) {
+          widget.firestore.collection('users').doc(user.uid).get().then((doc) {
             if (doc.exists) {
               final data = doc.data();
               final apartment = data?['apartment'];
@@ -113,7 +136,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
                 );
 
                 if (shouldLogout == true) {
-                  await FirebaseAuth.instance.signOut();
+                  await widget.auth.signOut();
                   if (mounted) {
                     Navigator.of(context).pushReplacementNamed('/login');
                   }
@@ -191,7 +214,13 @@ class _OperatorScreenState extends State<OperatorScreen> {
 ---------------------------------------------------------------- */
 class HomeScreen extends StatelessWidget {
   final String apartmentId;
-  const HomeScreen({Key? key, required this.apartmentId}) : super(key: key);
+  final FirebaseFirestore firestore;
+
+  const HomeScreen({
+    Key? key,
+    required this.apartmentId,
+    required this.firestore,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -214,8 +243,11 @@ class HomeScreen extends StatelessWidget {
             _buildDashboardCard(
               title: '施設予約状況表示',
               buttonText: 'もっと見る',
-              onPressed: () =>
-                  _showTodayAndTomorrowReservations(context, apartmentId),
+              onPressed: () => _showTodayAndTomorrowReservations(
+                context,
+                apartmentId,
+                firestore,
+              ),
             ),
           ],
         ),
@@ -271,7 +303,10 @@ class HomeScreen extends StatelessWidget {
 }
 
 void _showTodayAndTomorrowReservations(
-    BuildContext context, String apartmentId) async {
+  BuildContext context,
+  String apartmentId,
+  FirebaseFirestore firestore,
+) async {
   final today = DateTime.now();
   final tomorrow = today.add(const Duration(days: 1));
   final List<DateTime> targetDates = [today, tomorrow];
@@ -279,7 +314,7 @@ void _showTodayAndTomorrowReservations(
 
   for (final date in targetDates) {
     final dateOnly = DateTime(date.year, date.month, date.day);
-    final snapshot = await FirebaseFirestore.instance
+    final snapshot = await firestore
         .collection('reservations')
         .where('apartmentId', isEqualTo: apartmentId)
         .where('date', isEqualTo: Timestamp.fromDate(dateOnly))
@@ -298,10 +333,7 @@ void _showTodayAndTomorrowReservations(
       String userName = '不明';
 
       if (userId.isNotEmpty) {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .get();
+        final userDoc = await firestore.collection('users').doc(userId).get();
         if (userDoc.exists) {
           final userData = userDoc.data()!;
           roomNumber = userData['roomNumber']?.toString() ?? '不明';
@@ -384,8 +416,17 @@ String _addThirtyMinutes(String time) {
 ---------------------------------------------------------------- */
 class FacilityCalendarScreen extends StatefulWidget {
   final String apartmentId;
-  const FacilityCalendarScreen({Key? key, required this.apartmentId})
-      : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
+  final FirebaseFunctions functions;
+
+  const FacilityCalendarScreen({
+    Key? key,
+    required this.apartmentId,
+    required this.auth,
+    required this.firestore,
+    required this.functions,
+  }) : super(key: key);
 
   @override
   _FacilityCalendarScreenState createState() => _FacilityCalendarScreenState();
@@ -403,7 +444,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     final dateStr =
         '${_selectedMonth.year.toString().padLeft(4, '0')}-${_selectedMonth.month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
 
-    final docSnapshot = await FirebaseFirestore.instance
+    final docSnapshot = await widget.firestore
         .collection('facilities')
         .doc(_selectedFacilityId)
         .collection('unavailable_dates')
@@ -446,7 +487,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
   // 施設一覧を取得
   Future<void> _fetchFacilities() async {
-    final snapshot = await FirebaseFirestore.instance
+    final snapshot = await widget.firestore
         .collection('facilities')
         .where('apartment_id', isEqualTo: widget.apartmentId)
         .get();
@@ -482,7 +523,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     final fromTs = Timestamp.fromDate(firstDay);
     final toTs = Timestamp.fromDate(lastDay);
 
-    final querySnapshot = await FirebaseFirestore.instance
+    final querySnapshot = await widget.firestore
         .collection('reservations')
         .where('facilityId', isEqualTo: _selectedFacilityId)
         .where('date', isGreaterThanOrEqualTo: fromTs)
@@ -511,10 +552,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       String userName = '不明';
 
       if (userId.isNotEmpty) {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .get();
+        final userDoc =
+            await widget.firestore.collection('users').doc(userId).get();
         if (userDoc.exists) {
           final userData = userDoc.data()!;
           roomNumber = userData['roomNumber']?.toString() ?? '不明';
@@ -541,7 +580,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       _isLoading = false;
     });
 
-    final unavailableSnapshot = await FirebaseFirestore.instance
+    final unavailableSnapshot = await widget.firestore
         .collection('facilities')
         .doc(_selectedFacilityId)
         .collection('unavailable_dates')
@@ -621,7 +660,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                 Navigator.pop(dialogContext); // ダイアログを閉じる
 
                 try {
-                  await FirebaseFirestore.instance
+                  await widget.firestore
                       .collection('facilities')
                       .doc(_selectedFacilityId)
                       .delete();
@@ -774,8 +813,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                 ElevatedButton(
                   onPressed: () async {
                     final parentContext = context;
-                    final batch = FirebaseFirestore.instance.batch();
-                    final unavailableRef = FirebaseFirestore.instance
+                    final batch = widget.firestore.batch();
+                    final unavailableRef = widget.firestore
                         .collection('facilities')
                         .doc(_selectedFacilityId)
                         .collection('unavailable_dates');
@@ -875,7 +914,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     final lastDay =
         DateTime(year, month + 1, 1).subtract(const Duration(days: 1));
 
-    final query = await FirebaseFirestore.instance
+    final query = await widget.firestore
         .collection('reservations')
         .where('facilityId', isEqualTo: _selectedFacilityId)
         .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(firstDay))
@@ -907,10 +946,8 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
           '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
 
       if (!userMap.containsKey(userId)) {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(userId)
-            .get();
+        final userDoc =
+            await widget.firestore.collection('users').doc(userId).get();
         userMap[userId] = {
           'name': userDoc.data()?['name'] ?? '不明',
           'roomNumber': userDoc.data()?['roomNumber'] ?? '不明',
@@ -1007,7 +1044,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     final titleText = '$year年$month月$dayStr日の予約';
 
     final dateStr = '$year-$month-$dayStr'; // FirestoreのドキュメントID
-    final unavailableDoc = await FirebaseFirestore.instance
+    final unavailableDoc = await widget.firestore
         .collection('facilities')
         .doc(_selectedFacilityId)
         .collection('unavailable_dates')
@@ -1253,7 +1290,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
   Future<void> _deleteUnavailableTime(
       String dateStr, String start, String end) async {
-    final docRef = FirebaseFirestore.instance
+    final docRef = widget.firestore
         .collection('facilities')
         .doc(_selectedFacilityId)
         .collection('unavailable_dates')
@@ -1305,7 +1342,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
   Future<void> _deleteReservation(
       String dateStr, Map<String, String> reservation) async {
     final ts = Timestamp.fromDate(DateTime.parse(dateStr));
-    final query = await FirebaseFirestore.instance
+    final query = await widget.firestore
         .collection('reservations')
         .where('facilityId', isEqualTo: _selectedFacilityId)
         .where('date', isEqualTo: ts)
@@ -1329,7 +1366,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
       final formattedDate =
           '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
       // 通知ドキュメントを作成
-      await FirebaseFirestore.instance.collection('notifications').add({
+      await widget.firestore.collection('notifications').add({
         'message': '管理人が予約（$formattedDate $interval）をキャンセルしました。',
         'timestamp': Timestamp.now(),
         'read': false,
@@ -1397,7 +1434,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                     if (isUnavailable)
                       if (isUnavailable)
                         FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                          future: FirebaseFirestore.instance
+                          future: widget.firestore
                               .collection('facilities')
                               .doc(_selectedFacilityId)
                               .collection('unavailable_dates')
@@ -1623,10 +1660,10 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                   return;
                 }
 
-                final user = FirebaseAuth.instance.currentUser;
+                final user = widget.auth.currentUser;
                 if (user == null) return;
 
-                final userDoc = await FirebaseFirestore.instance
+                final userDoc = await widget.firestore
                     .collection('users')
                     .doc(user.uid)
                     .get();
@@ -1635,7 +1672,7 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
                 imageUrl = await _uploadImageToStorage();
 
-                await FirebaseFirestore.instance.collection('facilities').add({
+                await widget.firestore.collection('facilities').add({
                   'apartment_id': apartmentId,
                   'image': imageUrl,
                   'name': name,
@@ -1891,24 +1928,31 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 ---------------------------------------------------------------- */
 class BulletinBoardScreen extends StatefulWidget {
   final String apartmentId;
-  const BulletinBoardScreen({Key? key, required this.apartmentId})
-      : super(key: key);
+  final FirebaseFirestore firestore;
+
+  const BulletinBoardScreen({
+    Key? key,
+    required this.apartmentId,
+    required this.firestore,
+  }) : super(key: key);
 
   @override
   State<BulletinBoardScreen> createState() => _BulletinBoardScreenState();
 }
 
 class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
+  late final FirebaseFirestore firestore;
   List<Map<String, dynamic>> _posts = [];
 
   @override
   void initState() {
     super.initState();
+    firestore = widget.firestore;
     _fetchPosts();
   }
 
   Future<void> _fetchPosts() async {
-    final snapshot = await FirebaseFirestore.instance
+    final snapshot = await firestore
         .collection('bulletin_posts')
         .where('apartmentId', isEqualTo: widget.apartmentId)
         .orderBy('createdAt', descending: true)
@@ -1917,7 +1961,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     final postList = snapshot.docs.map((doc) {
       final data = doc.data();
       return {
-        'id': doc.id, // ← 追加
+        'id': doc.id,
         'title': data['title'] ?? '無題',
         'body': data['body'] ?? '',
         'pdfUrl': data['pdfUrl'],
@@ -2025,7 +2069,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                         }
 
                         // ① 掲示板データを追加
-                        await FirebaseFirestore.instance
+                        await widget.firestore
                             .collection('bulletin_posts')
                             .add({
                           'title': title,
@@ -2036,9 +2080,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                         });
 
                         // ② 管理人投稿の通知を全住人に送信
-                        await FirebaseFirestore.instance
-                            .collection('notifications')
-                            .add({
+                        await widget.firestore.collection('notifications').add({
                           'message': '管理人が「$title」を掲示板に投稿しました。',
                           'timestamp': Timestamp.now(),
                           'read': false,
@@ -2147,7 +2189,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
               Navigator.of(dialogContext).pop();
 
               // 投稿を削除
-              await FirebaseFirestore.instance
+              await widget.firestore
                   .collection('bulletin_posts')
                   .doc(post['id'])
                   .delete();
@@ -2272,7 +2314,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                             updatedPdfUrl = await storageRef.getDownloadURL();
                           }
 
-                          await FirebaseFirestore.instance
+                          await widget.firestore
                               .collection('bulletin_posts')
                               .doc(post['id'])
                               .update({
@@ -2358,10 +2400,20 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
 ---------------------------------------------------------------- */
 class AccountScreen extends StatelessWidget {
   final String apartmentId;
-  const AccountScreen({Key? key, required this.apartmentId}) : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
+  final FirebaseFunctions functions;
 
-  Future<List<Map<String, dynamic>>> _fetchResidents(String apartmentId) async {
-    final querySnapshot = await FirebaseFirestore.instance
+  const AccountScreen({
+    Key? key,
+    required this.apartmentId,
+    required this.auth,
+    required this.firestore,
+    required this.functions,
+  }) : super(key: key);
+
+  Future<List<Map<String, dynamic>>> _fetchResidents() async {
+    final querySnapshot = await firestore
         .collection('users')
         .where('apartment', isEqualTo: apartmentId)
         .where('role', isEqualTo: 'Resident')
@@ -2403,13 +2455,13 @@ class AccountScreen extends StatelessWidget {
             ElevatedButton(
               onPressed: () async {
                 try {
-                  final userCredential = await FirebaseAuth.instance
-                      .createUserWithEmailAndPassword(
+                  final userCredential =
+                      await auth.createUserWithEmailAndPassword(
                     email: '${roomNumberController.text.trim()}@example.com',
                     password: passwordController.text.trim(),
                   );
 
-                  await FirebaseFirestore.instance
+                  await firestore
                       .collection('users')
                       .doc(userCredential.user!.uid)
                       .set({
@@ -2417,8 +2469,7 @@ class AccountScreen extends StatelessWidget {
                     'email': '${roomNumberController.text.trim()}@example.com',
                     'roomNumber': roomNumberController.text.trim(),
                     'role': 'Resident',
-                    'apartment':
-                        apartmentId, // ← ここを修正して context で受け取った apartmentId を使用
+                    'apartment': apartmentId,
                   });
 
                   Navigator.pop(context);
@@ -2463,9 +2514,6 @@ class AccountScreen extends StatelessWidget {
               onPressed: () async {
                 final uid = resident['id'] as String;
                 try {
-                  // Cloud Function 呼び出しに差し替え
-                  final functions =
-                      FirebaseFunctions.instanceFor(region: 'us-central1');
                   final callable = functions.httpsCallable('deleteUserAccount');
                   final result =
                       await callable.call(<String, dynamic>{'uid': uid});
@@ -2475,7 +2523,6 @@ class AccountScreen extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('住人アカウントを削除しました。')),
                     );
-                    // もしリスト再取得が必要なら、StatefulWidget化して setState で _fetchResidents を再実行してください
                   }
                 } on FirebaseFunctionsException catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -2498,13 +2545,10 @@ class AccountScreen extends StatelessWidget {
         automaticallyImplyLeading: false,
         title: const Text(
           '住人アカウント一覧',
-          style: TextStyle(
-            fontSize: 24,
-          ),
+          style: TextStyle(fontSize: 24),
         ),
       ),
       body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 16),
           Align(
@@ -2517,7 +2561,7 @@ class AccountScreen extends StatelessWidget {
           const SizedBox(height: 16),
           Expanded(
             child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _fetchResidents(apartmentId),
+              future: _fetchResidents(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -2556,11 +2600,12 @@ class AccountScreen extends StatelessWidget {
 }
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+  const ProfileScreen({Key? key, required this.auth}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = auth.currentUser;
     if (user == null) {
       return const Center(child: Text('ログインが必要です'));
     }
@@ -2569,18 +2614,15 @@ class ProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // タイトル
           const Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Spacer(),
               Text('プロフィール', style: TextStyle(fontSize: 24)),
-              Spacer(), // 中央寄せ用
+              Spacer(),
             ],
           ),
           const SizedBox(height: 24),
-
-          // メールを中央テキストで表示
           Center(
             child: Text(
               'メール: ${user.email}',
@@ -2588,7 +2630,6 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 24),
-          // メール変更
           Card(
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -2596,12 +2637,10 @@ class ProfileScreen extends StatelessWidget {
             child: ListTile(
               leading: const Icon(Icons.edit),
               title: const Text('メールアドレスを変更'),
-              onTap: () => _changeEmail(context),
+              onTap: () => _changeEmail(context, user),
             ),
           ),
           const SizedBox(height: 12),
-
-          // パスワード変更
           Card(
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -2609,7 +2648,7 @@ class ProfileScreen extends StatelessWidget {
             child: ListTile(
               leading: const Icon(Icons.lock),
               title: const Text('パスワードを変更'),
-              onTap: () => _changePassword(context),
+              onTap: () => _changePassword(context, user),
             ),
           ),
         ],
@@ -2617,15 +2656,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _changeEmail(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
+  Future<void> _changeEmail(BuildContext context, User user) async {
     final pwdCtl = TextEditingController();
     final newCtl = TextEditingController();
     final confirmCtl = TextEditingController();
 
-    // 1) 再認証ダイアログ
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -2659,7 +2694,6 @@ class ProfileScreen extends StatelessWidget {
       return;
     }
 
-    // 2) 新メール入力ダイアログ
     await showDialog<void>(
       context: context,
       builder: (ctx2) => AlertDialog(
@@ -2702,15 +2736,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _changePassword(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
+  Future<void> _changePassword(BuildContext context, User user) async {
     final pwdCtl = TextEditingController();
     final newCtl = TextEditingController();
     final confirmCtl = TextEditingController();
 
-    // 1) 再認証ダイアログ
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -2744,7 +2774,6 @@ class ProfileScreen extends StatelessWidget {
       return;
     }
 
-    // 2) 新パスワード入力ダイアログ
     await showDialog<void>(
       context: context,
       builder: (ctx2) => AlertDialog(
