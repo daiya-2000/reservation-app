@@ -181,7 +181,10 @@ class _MyAppState extends State<MyApp> {
       title: 'マンション予約管理アプリ',
       initialRoute: '/splash',
       routes: {
-        '/splash': (c) => const SplashScreen(),
+        '/splash': (c) => SplashScreen(
+            auth: auth,
+            firestore: firestore,
+            initializeApp: () => Firebase.initializeApp()),
         '/login': (c) => LoginScreen(),
         '/main': (c) => MainScreen(
               auth: auth,

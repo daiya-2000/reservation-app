@@ -5,10 +5,19 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  final FirebaseAuth auth;
+  final FirebaseFirestore firestore;
+  final Future<FirebaseApp> Function() initializeApp;
+
+  const SplashScreen({
+    Key? key,
+    required this.auth,
+    required this.firestore,
+    required this.initializeApp,
+  }) : super(key: key);
 
   @override
-  _SplashScreenState createState() => _SplashScreenState();
+  State<SplashScreen> createState() => _SplashScreenState();
 }
 
 class _SplashScreenState extends State<SplashScreen> {
@@ -20,17 +29,14 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initializeAndCheckLogin() async {
     try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      // Firebase 初期化（常に inject された initializeApp を使う）
+      await widget.initializeApp();
 
-      final user = FirebaseAuth.instance.currentUser;
+      final user = widget.auth.currentUser;
 
       if (user != null) {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
+        final userDoc =
+            await widget.firestore.collection('users').doc(user.uid).get();
 
         final role = userDoc.data()?['role'] as String?;
 
@@ -48,7 +54,6 @@ class _SplashScreenState extends State<SplashScreen> {
       }
     } catch (e) {
       if (mounted) {
-        // 🔽 ログイン画面に遷移する前にエラー表示
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -60,14 +65,12 @@ class _SplashScreenState extends State<SplashScreen> {
           ),
         );
 
-        // 少し時間を置いてからログイン画面に遷移
         await Future.delayed(const Duration(seconds: 1));
         Navigator.pushReplacementNamed(context, '/login');
       }
     }
   }
 
-  // 🔽 エラー内容を簡易的に日本語に翻訳
   String _translateError(String error) {
     if (error.contains('network-request-failed')) {
       return 'ネットワークに接続できません。接続を確認してください。';
