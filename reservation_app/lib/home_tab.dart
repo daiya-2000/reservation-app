@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:intl/intl.dart';
+import 'package:reservation_app/pdf_view_screen.dart';
 
 class HomeTab extends StatefulWidget {
   final FirebaseAuth auth;
@@ -445,7 +447,19 @@ class _HomeTabState extends State<HomeTab> {
             Text('氏名: ${_userInfo?['name'] ?? '不明'}',
                 style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 24),
-            _buildSectionCard(title: '新しい掲示', onTap: () {/* TODO */}),
+            _buildSectionCard(
+              title: '新しい掲示',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => RecentBulletinPage(
+                      firestore: widget.firestore,
+                    ),
+                  ),
+                );
+              },
+            ),
             _buildSectionCard(
                 title: '現在の予約内容',
                 onTap: () {
@@ -486,6 +500,146 @@ class _HomeTabState extends State<HomeTab> {
           trailing: const Icon(Icons.arrow_forward_ios),
         ),
       ),
+    );
+  }
+}
+
+class RecentBulletinPage extends StatefulWidget {
+  final FirebaseFirestore firestore;
+
+  const RecentBulletinPage({Key? key, required this.firestore})
+      : super(key: key);
+
+  @override
+  State<RecentBulletinPage> createState() => _RecentBulletinPageState();
+}
+
+class _RecentBulletinPageState extends State<RecentBulletinPage> {
+  List<Map<String, dynamic>> _recentPosts = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRecentPosts();
+  }
+
+  Future<void> _fetchRecentPosts() async {
+    try {
+      final oneMonthAgo = DateTime.now().subtract(const Duration(days: 30));
+
+      final snapshot = await widget.firestore
+          .collection('bulletin_posts')
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(oneMonthAgo))
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      final posts = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'title': data['title'] ?? '無題',
+          'body': data['body'] ?? '',
+          'pdfUrl': data['pdfUrl'],
+          'createdAt': data['createdAt'],
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _recentPosts = posts;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('掲示取得失敗: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('掲示の取得に失敗しました')),
+        );
+      }
+    }
+  }
+
+  void _showPostDetailDialog(Map<String, dynamic> post) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(post['title']),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(post['body']),
+                const SizedBox(height: 16),
+                if (post['pdfUrl'] != null)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => PdfViewerScreen(url: post['pdfUrl']),
+                        ),
+                      );
+                    },
+                    child: const Text('PDFを表示'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('閉じる'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostCard(Map<String, dynamic> post) {
+    final timestamp = post['createdAt'] as Timestamp?;
+    final date = timestamp?.toDate();
+    final formattedDate =
+        date != null ? DateFormat('yyyy/MM/dd HH:mm').format(date) : '不明';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+      child: ListTile(
+        title: Text(post['title']),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(post['body'], maxLines: 2, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Text('投稿日: $formattedDate',
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _showPostDetailDialog(post),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('新しい掲示')),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _recentPosts.isEmpty
+              ? const Center(child: Text('1ヶ月以内に投稿された掲示板はありません。'))
+              : ListView.builder(
+                  itemCount: _recentPosts.length,
+                  itemBuilder: (context, index) =>
+                      _buildPostCard(_recentPosts[index]),
+                ),
     );
   }
 }
