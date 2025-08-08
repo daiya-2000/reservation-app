@@ -14,7 +14,7 @@ void main() {
 
     test('ios options should be valid', () {
       final options = DefaultFirebaseOptions.ios;
-      expect(options.iosBundleId, equals('com.example.reservationApp'));
+      expect(options.iosBundleId, equals('com.nextstarlab.reservationApp'));
       expect(options.projectId, equals('reservation-app-e2cc9'));
     });
 

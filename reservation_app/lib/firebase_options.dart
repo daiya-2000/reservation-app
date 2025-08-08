@@ -54,7 +54,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: _messagingSenderId,
     projectId: _projectId,
     storageBucket: _storageBucket,
-    iosBundleId: 'com.example.reservationApp',
+    iosBundleId: 'com.nextstarlab.reservationApp',
   );
 
   static const FirebaseOptions macos = ios; // 同一設定
