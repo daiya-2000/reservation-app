@@ -13,11 +13,15 @@ class MainScreen extends StatefulWidget {
   final FirebaseFirestore firestore;
   final FirebaseFunctions functions;
 
+  /// 通知バッジ用のstreamをテスト時に差し替え可能にする
+  final Stream<QuerySnapshot<Map<String, dynamic>>>? notificationStream;
+
   const MainScreen({
     Key? key,
     required this.auth,
     required this.firestore,
     required this.functions,
+    this.notificationStream,
     this.initialTabIndex = 0,
   }) : super(key: key);
 
@@ -49,6 +53,12 @@ class _MainScreenState extends State<MainScreen> {
       NotificationTab(auth: widget.auth, firestore: widget.firestore),
     ];
 
+    final notificationStream = widget.notificationStream ??
+        widget.firestore
+            .collection('notifications')
+            .where('read', isEqualTo: false)
+            .where('recipients', arrayContainsAny: ['all', userId]).snapshots();
+
     return Scaffold(
       body: screens[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
@@ -70,11 +80,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
           BottomNavigationBarItem(
             icon: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: widget.firestore
-                  .collection('notifications')
-                  .where('read', isEqualTo: false)
-                  .where('recipients',
-                      arrayContainsAny: ['all', userId]).snapshots(),
+              stream: notificationStream,
               builder: (context, snapshot) {
                 final unread =
                     snapshot.hasData ? snapshot.data!.docs.length : 0;

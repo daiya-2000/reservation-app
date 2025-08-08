@@ -19,79 +19,107 @@ import 'main_screen_test.mocks.dart';
   Query,
   QuerySnapshot,
   QueryDocumentSnapshot,
+  NavigatorObserver,
 ])
 void main() {
   late MockFirebaseAuth mockAuth;
   late MockFirebaseFirestore mockFirestore;
+  late MockFirebaseFunctions mockFunctions;
   late MockUser mockUser;
   late MockCollectionReference<Map<String, dynamic>> mockCollection;
   late MockQuery<Map<String, dynamic>> mockQuery;
   late MockQuerySnapshot<Map<String, dynamic>> mockSnapshot;
   late MockQueryDocumentSnapshot<Map<String, dynamic>> mockDoc;
-  late MockFirebaseFunctions mockFunctions;
+  late MockNavigatorObserver mockObserver;
 
   setUp(() {
     mockAuth = MockFirebaseAuth();
     mockFirestore = MockFirebaseFirestore();
+    mockFunctions = MockFirebaseFunctions();
     mockUser = MockUser();
     mockCollection = MockCollectionReference();
     mockQuery = MockQuery();
     mockSnapshot = MockQuerySnapshot();
     mockDoc = MockQueryDocumentSnapshot();
-    mockFunctions = MockFirebaseFunctions();
+    mockObserver = MockNavigatorObserver();
+
+    // Firebase Auth
+    when(mockAuth.currentUser).thenReturn(mockUser);
+    when(mockUser.uid).thenReturn('test_uid');
+    when(mockAuth.authStateChanges())
+        .thenAnswer((_) => Stream.fromIterable([mockUser]));
+
+    // Firestore - bulletin_posts
+    when(mockFirestore.collection('bulletin_posts')).thenReturn(mockCollection);
+    when(mockCollection.orderBy('createdAt', descending: true))
+        .thenReturn(mockQuery);
+    when(mockQuery.get()).thenAnswer((_) async => mockSnapshot);
+    when(mockSnapshot.docs).thenReturn([mockDoc]);
+    when(mockDoc.data()).thenReturn({
+      'title': 'お知らせ',
+      'body': '本文',
+      'pdfUrl': null,
+      'createdAt': Timestamp.now(),
+    });
+
+    // Firestore - notifications (for NotificationTab)
+    when(mockFirestore.collection('notifications')).thenReturn(mockCollection);
+    when(mockCollection.where('recipients',
+        arrayContainsAny: ['test_uid', 'all'])).thenReturn(mockQuery);
+    when(mockQuery.orderBy('timestamp', descending: true))
+        .thenReturn(mockQuery);
+    when(mockQuery.snapshots())
+        .thenAnswer((_) => Stream.fromIterable([mockSnapshot]));
+    when(mockSnapshot.docs).thenReturn([mockDoc]);
+
+    // Navigator
+    when(mockObserver.navigator).thenReturn(null);
   });
 
   testWidgets('renders correct initial tab and switches on tap',
       (tester) async {
-    // Firebase Auth モック
-    when(mockAuth.currentUser).thenReturn(mockUser);
-    when(mockUser.uid).thenReturn('test_uid');
+    // モック通知ストリームを作成
+    final notificationController =
+        StreamController<QuerySnapshot<Map<String, dynamic>>>();
+    final mockNotificationSnapshot = MockQuerySnapshot<Map<String, dynamic>>();
+    when(mockNotificationSnapshot.docs).thenReturn([mockDoc]);
 
-    // Firestore 通知ストリームのモック
-    when(mockFirestore.collection('notifications')).thenReturn(mockCollection);
-    when(mockCollection.where('read', isEqualTo: false)).thenReturn(mockQuery);
-    when(mockQuery.where('recipients', arrayContainsAny: ['all', 'test_uid']))
-        .thenReturn(mockQuery);
+    // テスト対象ウィジェットをレンダリング
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MainScreen(
+          auth: mockAuth,
+          firestore: mockFirestore,
+          functions: mockFunctions,
+          notificationStream: notificationController.stream, // ← 注入
+        ),
+        navigatorObservers: [mockObserver],
+      ),
+    );
 
-    final mockDocs = [mockDoc]; // 通知1件
-    when(mockSnapshot.docs).thenReturn(mockDocs);
+    // 通知ストリームを流す
+    notificationController.add(mockNotificationSnapshot);
+    await tester.pumpAndSettle();
 
-    // Stream にデータを流す
-    final controller = StreamController<QuerySnapshot<Map<String, dynamic>>>();
-    when(mockQuery.snapshots()).thenAnswer((_) => controller.stream);
-
-    // テスト対象ウィジェットを表示
-    await tester.pumpWidget(MaterialApp(
-      home: MainScreen(
-          auth: mockAuth, firestore: mockFirestore, functions: mockFunctions),
-    ));
-
-    // 通知データを流してUIを更新
-    controller.add(mockSnapshot);
-    await tester.pump();
-
-    // 初期タブ（施設予約）が表示されていることを確認
+    // タブがすべて表示されていることを確認
     expect(find.byIcon(Icons.calendar_today), findsOneWidget);
-
-    // 掲示板タブに切り替え
-    await tester.tap(find.byIcon(Icons.message));
-    await tester.pumpAndSettle();
-
     expect(find.byIcon(Icons.message), findsOneWidget);
-
-    // マイページタブに切り替え
-    await tester.tap(find.byIcon(Icons.home));
-    await tester.pumpAndSettle();
-
     expect(find.byIcon(Icons.home), findsOneWidget);
-
-    // 通知タブに切り替え（StreamBuilder内にバッジが表示される）
-    await tester.tap(find.byIcon(Icons.notifications));
-    await tester.pumpAndSettle();
-
     expect(find.byIcon(Icons.notifications), findsOneWidget);
 
-    // クリーンアップ
-    await controller.close();
+    // 各タブをタップして切り替える
+    await tester.tap(find.byIcon(Icons.message));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.byIcon(Icons.calendar_today));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.byIcon(Icons.home));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(find.byIcon(Icons.notifications));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await notificationController.close();
   });
 }
