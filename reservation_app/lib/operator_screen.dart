@@ -52,6 +52,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
         BulletinBoardScreen(
           apartmentId: _apartmentId!,
           firestore: widget.firestore,
+          functions: widget.functions,
         ),
         AccountScreen(
           apartmentId: _apartmentId!,
@@ -1929,12 +1930,14 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 class BulletinBoardScreen extends StatefulWidget {
   final String apartmentId;
   final FirebaseFirestore firestore;
+  final FirebaseFunctions functions;
 
-  const BulletinBoardScreen({
-    Key? key,
-    required this.apartmentId,
-    required this.firestore,
-  }) : super(key: key);
+  const BulletinBoardScreen(
+      {Key? key,
+      required this.apartmentId,
+      required this.firestore,
+      required this.functions})
+      : super(key: key);
 
   @override
   State<BulletinBoardScreen> createState() => _BulletinBoardScreenState();
@@ -2092,6 +2095,11 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('投稿が完了しました')),
                         );
+
+                        await widget.functions
+                            .httpsCallable('sendBulletinNotification')
+                            .call({'title': title});
+
                         _fetchPosts();
                       },
                 child: const Text('作成'),

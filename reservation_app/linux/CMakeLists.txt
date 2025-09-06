@@ -7,7 +7,7 @@ project(runner LANGUAGES CXX)
 set(BINARY_NAME "reservation_app")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
-set(APPLICATION_ID "com.example.reservation_app")
+set(APPLICATION_ID "com.nextstarlab.reservation_app")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

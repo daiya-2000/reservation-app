@@ -1,4 +1,4 @@
-package com.example.reservation_app
+package com.nextstarlab.reservation_app
 
 import io.flutter.embedding.android.FlutterActivity
 
