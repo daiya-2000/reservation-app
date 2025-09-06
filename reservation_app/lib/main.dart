@@ -19,6 +19,7 @@ import 'admin_screen.dart';
 import 'operator_screen.dart';
 
 /// バックグラウンドでプッシュ通知を受け取ったとき
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
@@ -35,7 +36,12 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+  } catch (e) {
+    debugPrint('🔥 Firebase init failed: $e');
+  }
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
@@ -124,7 +130,6 @@ class _MyAppState extends State<MyApp> {
       }
 
       // トークン更新時も同様に
-      // トークン更新時も同様に
       FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
         try {
           final u = FirebaseAuth.instance.currentUser;
@@ -148,21 +153,22 @@ class _MyAppState extends State<MyApp> {
 
       FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
         final n = msg.notification;
-        final a = msg.notification?.android;
-        if (n != null && a != null) {
+        if (n != null) {
           flutterLocalNotificationsPlugin.show(
             n.hashCode,
             n.title,
             n.body,
             NotificationDetails(
+              iOS: DarwinNotificationDetails(),
+              macOS: DarwinNotificationDetails(),
               android: AndroidNotificationDetails(
                 channel.id,
                 channel.name,
                 channelDescription: channel.description,
                 icon: '@mipmap/ic_launcher',
+                importance: Importance.high,
+                priority: Priority.high,
               ),
-              iOS: kIsWeb ? null : const DarwinNotificationDetails(),
-              macOS: kIsWeb ? null : const DarwinNotificationDetails(),
             ),
           );
         }

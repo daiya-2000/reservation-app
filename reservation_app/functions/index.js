@@ -4,6 +4,7 @@
 const admin = require("firebase-admin");
 admin.initializeApp();
 
+const functions = require("firebase-functions");
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 
 exports.createManagerAccount = onCall(
@@ -202,3 +203,25 @@ exports.sendFcmOnNotification = onDocumentCreated(
       }
     },
 );
+
+
+exports.sendBulletinNotification = functions.https.onCall(async (data, context) => {
+  const {title} = data;
+
+  const message = {
+    notification: {
+      title: "新しい掲示板投稿",
+      body: `管理人が「${title}」を投稿しました。`,
+    },
+    topic: "all",
+  };
+
+  try {
+    const response = await admin.messaging().send(message);
+    console.log("通知送信成功:", response);
+    return {success: true};
+  } catch (error) {
+    console.error("通知送信失敗:", error);
+    return {success: false, error: error.message};
+  }
+});
