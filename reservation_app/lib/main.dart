@@ -1,6 +1,8 @@
 // main.dart
 
 import 'dart:io' show Platform;
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -34,16 +36,49 @@ const AndroidNotificationChannel channel = AndroidNotificationChannel(
   importance: Importance.high,
 );
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+/// 共通：通知 data を見て遷移を実行
+void _navigateFromData(Map<String, dynamic> data) {
+  final route = data['route'] as String?;
+
+  // 予約詳細（安全にリテラルを渡す）
+  if (route == '/reservation/detail' && data['reservationId'] != null) {
+    navigatorKey.currentState?.pushNamed(
+      '/reservation/detail',
+      arguments: {'id': data['reservationId']},
+    );
+    return;
+  }
+
+  // data に任意の route が入っていればそのまま遷移（null/空文字は無視）
+  if (route != null && route.isNotEmpty) {
+    navigatorKey.currentState?.pushNamed(route);
+    return;
+  }
+
+  // デフォルト遷移
+  navigatorKey.currentState?.pushNamed('/notification_detail');
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform);
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e) {
     debugPrint('🔥 Firebase init failed: $e');
   }
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // フォアグラウンドでも iOS が通知を表示できるように
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
 
   const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
   final initSettings = kIsWeb
@@ -54,11 +89,18 @@ Future<void> main() async {
           macOS: DarwinInitializationSettings(),
         );
 
+  // ローカル通知タップ時：payload(JSON)を解析して遷移
   await flutterLocalNotificationsPlugin.initialize(
     initSettings,
     onDidReceiveNotificationResponse: (NotificationResponse resp) {
-      Navigator.of(navigatorKey.currentContext!)
-          .pushNamed('/notification_detail');
+      try {
+        if (resp.payload?.isNotEmpty == true) {
+          final data = jsonDecode(resp.payload!) as Map<String, dynamic>;
+          _navigateFromData(data);
+          return;
+        }
+      } catch (_) {}
+      navigatorKey.currentState?.pushNamed('/notification_detail');
     },
   );
 
@@ -69,8 +111,6 @@ Future<void> main() async {
 
   runApp(const MyApp());
 }
-
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 class MyApp extends StatefulWidget {
   const MyApp({Key? key}) : super(key: key);
@@ -88,6 +128,11 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     _setupFCM();
+
+    // cold start（通知から起動）に対応
+    FirebaseMessaging.instance.getInitialMessage().then((msg) {
+      if (msg != null) _navigateFromData(msg.data);
+    });
   }
 
   Future<void> _setupFCM() async {
@@ -120,7 +165,7 @@ class _MyAppState extends State<MyApp> {
         debugPrint('Failed to get FCM token: $e');
       }
 
-      // Firestore に保存
+      // Firestore に保存（ログイン済みの場合）
       final user = FirebaseAuth.instance.currentUser;
       if (fcmToken != null && user != null) {
         await FirebaseFirestore.instance
@@ -129,7 +174,7 @@ class _MyAppState extends State<MyApp> {
             .update({'fcmToken': fcmToken});
       }
 
-      // トークン更新時も同様に
+      // トークン更新時も同様に保存
       FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
         try {
           final u = FirebaseAuth.instance.currentUser;
@@ -144,23 +189,25 @@ class _MyAppState extends State<MyApp> {
         }
       });
 
-      // topic subscribe は失敗してもクラッシュさせない
+      // 任意のトピック購読（失敗しても無視）
       try {
         await _messaging.subscribeToTopic('all');
       } catch (e) {
         debugPrint('Failed to subscribe to topic: $e');
       }
 
+      // フォアグラウンド受信：ローカル通知を表示（payload に data を同梱）
       FirebaseMessaging.onMessage.listen((RemoteMessage msg) {
         final n = msg.notification;
+        final dataJson = jsonEncode(msg.data);
         if (n != null) {
           flutterLocalNotificationsPlugin.show(
             n.hashCode,
             n.title,
             n.body,
             NotificationDetails(
-              iOS: DarwinNotificationDetails(),
-              macOS: DarwinNotificationDetails(),
+              iOS: const DarwinNotificationDetails(),
+              macOS: const DarwinNotificationDetails(),
               android: AndroidNotificationDetails(
                 channel.id,
                 channel.name,
@@ -170,12 +217,14 @@ class _MyAppState extends State<MyApp> {
                 priority: Priority.high,
               ),
             ),
+            payload: dataJson,
           );
         }
       });
 
+      // バックグラウンド→復帰（通知タップ）
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage msg) {
-        navigatorKey.currentState?.pushNamed('/notification_detail');
+        _navigateFromData(msg.data);
       });
     }
   }
@@ -188,18 +237,21 @@ class _MyAppState extends State<MyApp> {
       initialRoute: '/splash',
       routes: {
         '/splash': (c) => SplashScreen(
-            auth: auth,
-            firestore: firestore,
-            initializeApp: () => Firebase.initializeApp()),
+              auth: auth,
+              firestore: firestore,
+              initializeApp: () => Firebase.initializeApp(),
+            ),
         '/login': (c) => LoginScreen(),
         '/main': (c) => MainScreen(
               auth: auth,
               firestore: firestore,
               functions: functions,
             ),
-        '/admin_dashboard': (c) => AdminScreen(), // 管理者は未修正ならそのままでOK
+        '/admin_dashboard': (c) => AdminScreen(),
         '/operator_dashboard': (c) => OperatorScreen(
             auth: auth, firestore: firestore, functions: functions),
+
+        // 通知タップのデフォルト遷移先（例: お知らせタブへ）
         '/notification_detail': (c) => MainScreen(
               auth: auth,
               firestore: firestore,
