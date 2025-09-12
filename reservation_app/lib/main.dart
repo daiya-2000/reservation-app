@@ -256,7 +256,7 @@ class _MyAppState extends State<MyApp> {
               auth: auth,
               firestore: firestore,
               functions: functions,
-              initialTabIndex: 3,
+              initialTabIndex: 4,
             ),
       },
       locale: const Locale('ja'),
