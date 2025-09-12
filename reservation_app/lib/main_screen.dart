@@ -6,6 +6,7 @@ import 'home_tab.dart';
 import 'reservation_tab.dart';
 import 'bulletin_tab.dart';
 import 'notification_tab.dart';
+import 'contact_tab.dart';
 
 class MainScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -50,7 +51,8 @@ class _MainScreenState extends State<MainScreen> {
         firestore: widget.firestore,
         functions: widget.functions,
       ),
-      NotificationTab(auth: widget.auth, firestore: widget.firestore),
+      ContactTab(auth: widget.auth, firestore: widget.firestore),
+      NotificationTab(auth: widget.auth, firestore: widget.firestore)
     ];
 
     final notificationStream = widget.notificationStream ??
@@ -77,6 +79,10 @@ class _MainScreenState extends State<MainScreen> {
           const BottomNavigationBarItem(
             icon: Icon(Icons.home),
             label: 'マイページ',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.support_agent),
+            label: 'お問い合わせ',
           ),
           BottomNavigationBarItem(
             icon: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
