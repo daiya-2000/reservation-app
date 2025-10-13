@@ -15,6 +15,7 @@ import 'package:csv/csv.dart';
 import 'package:universal_html/html.dart' as html;
 import 'dart:convert';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 
 class OperatorScreen extends StatefulWidget {
   final FirebaseAuth auth;
@@ -59,6 +60,10 @@ class _OperatorScreenState extends State<OperatorScreen> {
           auth: widget.auth,
           firestore: widget.firestore,
           functions: widget.functions,
+        ),
+        ContactScreen(
+          apartmentId: _apartmentId!,
+          firestore: widget.firestore,
         ),
         ProfileScreen(
           auth: widget.auth,
@@ -117,7 +122,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
           NavigationRail(
             selectedIndex: _selectedIndex,
             onDestinationSelected: (int index) async {
-              if (index == 5) {
+              if (index == 6) {
                 final shouldLogout = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
@@ -180,6 +185,14 @@ class _OperatorScreenState extends State<OperatorScreen> {
               NavigationRailDestination(
                 icon: Icon(Icons.account_circle),
                 label: Text('住人アカウント一覧',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.support_agent),
+                label: Text('お問い合わせ',
                     style: TextStyle(
                         fontSize: 14,
                         color: Colors.white,
@@ -2013,7 +2026,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                     maxLines: 5,
                   ),
                   const SizedBox(height: 8),
-                  ElevatedButton(
+                  ElevatedButton.icon(
                     onPressed: () async {
                       final result = await FilePicker.platform.pickFiles(
                         type: FileType.custom,
@@ -2025,11 +2038,17 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
                         setModalState(() {
                           selectedPdfFile = file;
                           selectedPdfName = file.name;
-                          isPdfTooLarge = file.size > 2 * 1024 * 1024;
+                          isPdfTooLarge = file.size > 2 * 1024 * 1024; // 2MB超え
                         });
                       }
                     },
-                    child: const Text('詳細PDFアップロード'),
+                    icon: const Icon(
+                        Icons.picture_as_pdf), // or Icons.upload_file
+                    label: Text(
+                      (selectedPdfName == null || selectedPdfName!.isEmpty)
+                          ? '詳細PDFアップロード'
+                          : 'PDFを再選択（$selectedPdfName）',
+                    ),
                   ),
                   if (selectedPdfName != null) ...[
                     Text('ファイル名：$selectedPdfName'),
@@ -2404,7 +2423,7 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
 }
 
 /* ----------------------------------------------------------------
-   アカウント管理画面
+   アカウント管理画面（サイドバーが消えない修正版）
 ---------------------------------------------------------------- */
 class AccountScreen extends StatelessWidget {
   final String apartmentId;
@@ -2420,18 +2439,17 @@ class AccountScreen extends StatelessWidget {
     required this.functions,
   }) : super(key: key);
 
-  Future<List<Map<String, dynamic>>> _fetchResidents() async {
-    final querySnapshot = await firestore
+  // 変更ポイント①: Stream で常時購読（自動反映）
+  Stream<List<Map<String, dynamic>>> _residentStream() {
+    return firestore
         .collection('users')
         .where('apartment', isEqualTo: apartmentId)
         .where('role', isEqualTo: 'Resident')
-        .get();
-
-    return querySnapshot.docs
-        .map((doc) => {...doc.data(), 'id': doc.id})
-        .toList();
+        .snapshots()
+        .map((qs) => qs.docs.map((d) => {...d.data(), 'id': d.id}).toList());
   }
 
+  /// 単体作成（既存機能、pushReplacement を削除）
   Future<void> _createResidentAccount(BuildContext context) async {
     final roomNumberController = TextEditingController();
     final passwordController = TextEditingController();
@@ -2463,37 +2481,271 @@ class AccountScreen extends StatelessWidget {
             ElevatedButton(
               onPressed: () async {
                 try {
-                  final userCredential =
-                      await auth.createUserWithEmailAndPassword(
-                    email: '${roomNumberController.text.trim()}@example.com',
-                    password: passwordController.text.trim(),
-                  );
+                  // 可能なら Cloud Functions 側で作成
+                  try {
+                    final callable =
+                        functions.httpsCallable('createResidentAccount');
+                    await callable.call(<String, dynamic>{
+                      'email':
+                          '${roomNumberController.text.trim()}@example.com',
+                      'password': passwordController.text.trim(),
+                      'roomNumber': roomNumberController.text.trim(),
+                      'name': roomNumberController.text.trim(),
+                      'role': 'Resident',
+                      'apartment': apartmentId,
+                    });
+                  } on FirebaseFunctionsException {
+                    // Fallback（推奨は Functions）
+                    final userCredential =
+                        await auth.createUserWithEmailAndPassword(
+                      email: '${roomNumberController.text.trim()}@example.com',
+                      password: passwordController.text.trim(),
+                    );
+                    await firestore
+                        .collection('users')
+                        .doc(userCredential.user!.uid)
+                        .set({
+                      'name': roomNumberController.text.trim(),
+                      'email':
+                          '${roomNumberController.text.trim()}@example.com',
+                      'roomNumber': roomNumberController.text.trim(),
+                      'role': 'Resident',
+                      'apartment': apartmentId,
+                    });
+                  }
 
-                  await firestore
-                      .collection('users')
-                      .doc(userCredential.user!.uid)
-                      .set({
-                    'name': roomNumberController.text.trim(),
-                    'email': '${roomNumberController.text.trim()}@example.com',
-                    'roomNumber': roomNumberController.text.trim(),
-                    'role': 'Resident',
-                    'apartment': apartmentId,
-                  });
-
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('住人アカウントを作成しました。')),
-                  );
+                  if (context.mounted) {
+                    Navigator.pop(context); // ダイアログを閉じるだけ
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('住人アカウントを作成しました。')),
+                    );
+                  }
+                  // リストは StreamBuilder が自動更新
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('エラー: $e')),
-                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('エラー: $e')),
+                    );
+                  }
                 }
               },
               child: const Text('作成ボタン'),
             ),
           ],
         );
+      },
+    );
+  }
+
+  /// 一括作成（CSV）— ダイアログから実行（pushReplacement を削除）
+  Future<void> _bulkCreateResidents(BuildContext context) async {
+    PlatformFile? pickedFile;
+    List<int>? pickedBytes;
+    String? pickedName;
+    bool working = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: !working,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          Future<void> pickCsv() async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['csv'],
+              withData: true,
+            );
+            if (result == null || result.files.isEmpty) return;
+            final file = result.files.first;
+            setState(() {
+              pickedFile = file;
+              pickedBytes = file.bytes;
+              pickedName = file.name;
+            });
+          }
+
+          Future<void> runCreate() async {
+            if (pickedBytes == null || working) return;
+            setState(() => working = true);
+
+            try {
+              final contentUtf8 =
+                  utf8.decode(pickedBytes!, allowMalformed: true);
+
+              final rows = const CsvToListConverter(
+                eol: '\n',
+                shouldParseNumbers: false,
+              ).convert(contentUtf8);
+
+              if (rows.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('CSVが空です。')),
+                );
+                setState(() => working = false);
+                return;
+              }
+
+              final headers = rows.first
+                  .map((e) =>
+                      e.toString().trim().toLowerCase().replaceAll(' ', ''))
+                  .toList();
+
+              final idxRoom = headers.indexWhere(
+                  (h) => h == 'roomnumber' || h == 'room' || h == '部屋番号');
+              final idxPass =
+                  headers.indexWhere((h) => h == 'password' || h == 'パスワード');
+
+              if (idxRoom == -1 || idxPass == -1) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'CSVヘッダーが見つかりません。（必要: room number / password）\n検出: ${headers.join(', ')}',
+                    ),
+                  ),
+                );
+                setState(() => working = false);
+                return;
+              }
+
+              final residents = <Map<String, dynamic>>[];
+              for (int i = 1; i < rows.length; i++) {
+                final row = rows[i];
+                if (row.length <= idxRoom || row.length <= idxPass) continue;
+
+                final roomNumber = row[idxRoom].toString().trim();
+                final password = row[idxPass].toString().trim();
+                if (roomNumber.isEmpty || password.isEmpty) continue;
+
+                residents.add({
+                  'roomNumber': roomNumber,
+                  'password': password,
+                });
+              }
+
+              if (residents.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('有効な行がありませんでした。')),
+                );
+                setState(() => working = false);
+                return;
+              }
+
+              final callable = functions.httpsCallable('bulkCreateResidents');
+              final resp = await callable.call(<String, dynamic>{
+                'apartment': apartmentId,
+                'residents': residents,
+                'defaultEmailDomain': 'example.com',
+              });
+
+              if (ctx.mounted) Navigator.of(ctx).pop(); // ダイアログを閉じる
+
+              final data = resp.data as Map<String, dynamic>;
+              final successCount = data['successCount'] ?? 0;
+              final failureCount = data['failureCount'] ?? 0;
+              final List<dynamic> results = data['results'] ?? [];
+              final errors =
+                  results.where((r) => r['success'] == false).toList();
+
+              if (errors.isEmpty) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            '一括追加が完了しました。成功: $successCount / ${residents.length}')),
+                  );
+                }
+              } else {
+                if (context.mounted) {
+                  await showDialog(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('一部失敗しました'),
+                      content: SizedBox(
+                        width: 520,
+                        child: SingleChildScrollView(
+                          child: Text([
+                            '成功: $successCount / ${residents.length}',
+                            '失敗: $failureCount',
+                            '--- 失敗詳細 ---',
+                            ...errors.map((e) =>
+                                '行${(e['index'] as int) + 2} (${(e['roomNumber'] ?? '-').toString()}) : ${e['error']}')
+                          ].join('\n')),
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('閉じる'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+              }
+              // リストは StreamBuilder が自動更新
+            } catch (e) {
+              setState(() => working = false);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('一括追加エラー: $e')),
+                );
+              }
+            }
+          }
+
+          return AlertDialog(
+            title: const Text('一括入居者追加'),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 360),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      pickedName == null
+                          ? 'CSVファイル：未選択'
+                          : 'CSVファイル：$pickedName',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: working ? null : pickCsv,
+                      icon: const Icon(Icons.upload_file),
+                      label: Text(pickedName == null
+                          ? 'CSVアップロード'
+                          : 'CSVを再選択（$pickedName）'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '※ ヘッダーに「room number」「password」を含むCSVを指定してください。',
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: working ? null : () => Navigator.pop(ctx),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: (pickedBytes != null && !working) ? runCreate : null,
+                child: working
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('作成'),
+              ),
+            ],
+          );
+        });
       },
     );
   }
@@ -2527,15 +2779,20 @@ class AccountScreen extends StatelessWidget {
                       await callable.call(<String, dynamic>{'uid': uid});
 
                   if (result.data['success'] == true) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('住人アカウントを削除しました。')),
-                    );
+                    if (context.mounted) {
+                      Navigator.pop(context); // ダイアログを閉じるだけ
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('住人アカウントを削除しました。')),
+                      );
+                    }
+                    // リストは StreamBuilder が自動更新
                   }
                 } on FirebaseFunctionsException catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('削除に失敗しました: ${e.message}')),
-                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('削除に失敗しました: ${e.message}')),
+                    );
+                  }
                 }
               },
               child: const Text('削除ボタン'),
@@ -2559,28 +2816,47 @@ class AccountScreen extends StatelessWidget {
       body: Column(
         children: [
           const SizedBox(height: 16),
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton(
-              onPressed: () => _createResidentAccount(context),
-              child: const Text('新規住人アカウント作成'),
+          // 右寄せ・縦並びの操作ボタン
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                const Spacer(),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => _createResidentAccount(context),
+                      child: const Text('新規住人アカウント作成'),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: () => _bulkCreateResidents(context),
+                      child: const Text('一括入居者追加'),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
+
+          // 変更ポイント②: StreamBuilder で自動更新・再描画
           Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _fetchResidents(),
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _residentStream(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (snapshot.hasError ||
-                    snapshot.data == null ||
-                    snapshot.data!.isEmpty) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('読み込みに失敗しました: ${snapshot.error}'));
+                }
+                final residents = snapshot.data ?? [];
+                if (residents.isEmpty) {
                   return const Center(child: Text('住人情報が見つかりませんでした。'));
                 }
 
-                final residents = snapshot.data!;
                 return ListView.builder(
                   itemCount: residents.length,
                   itemBuilder: (context, index) {
@@ -2603,6 +2879,474 @@ class AccountScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------
+// 管理者用 お問い合わせ管理画面（クローズ時は回答不可）
+// ---------------------------------------------------------------
+class ContactScreen extends StatefulWidget {
+  final String apartmentId;
+  final FirebaseFirestore firestore;
+
+  const ContactScreen({
+    Key? key,
+    required this.apartmentId,
+    required this.firestore,
+  }) : super(key: key);
+
+  @override
+  State<ContactScreen> createState() => _ContactScreenState();
+}
+
+class _ContactScreenState extends State<ContactScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab;
+
+  @override
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final baseQuery = widget.firestore
+        .collection('contacts')
+        .where('apartment', isEqualTo: widget.apartmentId);
+
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('お問い合わせ', style: TextStyle(fontSize: 24)),
+        bottom: TabBar(
+          controller: _tab,
+          tabs: const [
+            Tab(text: '未回答'),
+            Tab(text: '全件'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tab,
+        children: [
+          _ContactListView(
+            query: baseQuery
+                .where('status', isEqualTo: 'open')
+                .orderBy('updatedAt', descending: true),
+            firestore: widget.firestore,
+          ),
+          _ContactListView(
+            query: baseQuery.orderBy('updatedAt', descending: true),
+            firestore: widget.firestore,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContactListView extends StatelessWidget {
+  final Query<Map<String, dynamic>> query;
+  final FirebaseFirestore firestore;
+
+  const _ContactListView({
+    Key? key,
+    required this.query,
+    required this.firestore,
+  }) : super(key: key);
+
+  String _fmtTs(Timestamp? ts) {
+    if (ts == null) return '';
+    final d = ts.toDate();
+    return '${d.year}/${d.month.toString().padLeft(2, '0')}/${d.day.toString().padLeft(2, '0')} '
+        '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  Widget _statusChip(String status) {
+    Color c;
+    String label;
+    switch (status) {
+      case 'open':
+        c = Colors.orange;
+        label = '未回答';
+        break;
+      case 'answered':
+        c = Colors.green;
+        label = '回答済み';
+        break;
+      case 'closed':
+        c = Colors.grey;
+        label = 'クローズ';
+        break;
+      default:
+        c = Colors.blueGrey;
+        label = status;
+    }
+    return Chip(
+      label: Text(label),
+      backgroundColor: c.withOpacity(0.15),
+      labelStyle: TextStyle(color: c),
+    );
+  }
+
+  // Firestore エラー表示（インデックス作成リンクが含まれていれば開ける）
+  Widget _errorView(Object error) {
+    String msg = '読み込みに失敗しました。';
+    String? indexUrl;
+
+    if (error is FirebaseException) {
+      msg = error.message ?? msg;
+      final m = RegExp(r'https://console\.firebase\.google\.com/[^\s]+')
+          .firstMatch(msg);
+      if (m != null) indexUrl = m.group(0);
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(msg, textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            if (indexUrl != null)
+              ElevatedButton.icon(
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('インデックスを作成'),
+                onPressed: () async {
+                  final uri = Uri.parse(indexUrl!);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri);
+                  }
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openTicketDialog(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data()!;
+    final subject = (data['subject'] as String?) ?? '(件名なし)';
+    final userName = (data['name'] as String?) ?? '';
+    final userEmail = (data['email'] as String?) ?? '';
+    final message = (data['message'] as String?) ?? '';
+    final category = (data['category'] as String?) ?? '';
+    final status = (data['status'] as String?) ?? 'open';
+    final isClosed = status == 'closed'; // ★ クローズ判定
+    final userId = (data['userId'] as String?) ?? '';
+
+    final replyCtl = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: Text(subject),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _statusChip(status),
+                      if (category.isNotEmpty) Chip(label: Text(category)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (userName.isNotEmpty) Text('ユーザー: $userName'),
+                  if (userEmail.isNotEmpty) Text('メール: $userEmail'),
+                  const SizedBox(height: 12),
+                  const Text('質問内容',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(message),
+                  ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text('やり取り',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+
+                  // スレッド
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: firestore
+                        .collection('contacts')
+                        .doc(doc.id)
+                        .collection('replies')
+                        .orderBy('createdAt')
+                        .snapshots(),
+                    builder: (context, snap) {
+                      if (snap.hasError) return _errorView(snap.error!);
+                      final replies = snap.data?.docs ?? [];
+                      if (replies.isEmpty) return const Text('まだ回答はありません。');
+
+                      return Column(
+                        children: replies.map((r) {
+                          final d = r.data();
+                          final sender = (d['sender'] as String?) ?? 'admin';
+                          final text = (d['text'] as String?) ?? '';
+                          final ts = _fmtTs(d['createdAt'] as Timestamp?);
+                          final isAdmin = sender == 'admin';
+                          return Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isAdmin
+                                  ? Colors.purple.withOpacity(0.06)
+                                  : Colors.blueGrey.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(isAdmin ? '管理者' : 'ユーザー',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 2),
+                                Text(text),
+                                const SizedBox(height: 4),
+                                Text(ts,
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.black54)),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ★ クローズ時は入力不可＆グレーアウト
+                  TextField(
+                    controller: replyCtl,
+                    maxLines: 4,
+                    enabled: !isClosed,
+                    readOnly: isClosed,
+                    decoration: InputDecoration(
+                      border: const OutlineInputBorder(),
+                      labelText: '回答を入力',
+                      hintText:
+                          isClosed ? 'クローズ済みのため入力できません' : 'ユーザーに送る回答内容を入力',
+                      filled: isClosed,
+                      fillColor: isClosed ? Colors.grey.shade200 : null,
+                    ),
+                  ),
+                  if (isClosed)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        'このお問い合わせはクローズされています。追記できません。',
+                        style: TextStyle(fontSize: 12, color: Colors.black54),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            // 閉じる
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('閉じる'),
+            ),
+
+            // クローズ（確認付き）
+            OutlinedButton.icon(
+              icon: const Icon(Icons.lock),
+              label: const Text('クローズ'),
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: ctx,
+                  builder: (confirmCtx) => AlertDialog(
+                    title: const Text('お問い合わせをクローズしますか？'),
+                    content: const Text(
+                      'クローズ後はユーザー側でこのチケットに返信できなくなります（閲覧は可能）。',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(confirmCtx, false),
+                        child: const Text('キャンセル'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => Navigator.pop(confirmCtx, true),
+                        child: const Text('クローズする'),
+                      ),
+                    ],
+                  ),
+                );
+                if (ok != true) return;
+
+                try {
+                  await doc.reference.update({
+                    'status': 'closed',
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('クローズしました')),
+                    );
+                  }
+                } on FirebaseException catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text('クローズに失敗しました: ${e.message ?? e.code}')),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('クローズに失敗しました: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+
+            // 回答送信（クローズ時は無効）
+            ElevatedButton.icon(
+              icon: const Icon(Icons.send),
+              label: const Text('回答送信'),
+              onPressed: isClosed
+                  ? null
+                  : () async {
+                      final text = replyCtl.text.trim();
+                      if (text.isEmpty) return;
+
+                      try {
+                        // 1) スレッド追加
+                        await firestore
+                            .collection('contacts')
+                            .doc(doc.id)
+                            .collection('replies')
+                            .add({
+                          'sender': 'admin',
+                          'text': text,
+                          'createdAt': FieldValue.serverTimestamp(),
+                        });
+
+                        // 2) 親更新（回答済み）
+                        await doc.reference.update({
+                          'status': 'answered',
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        });
+
+                        // 3) 通知
+                        final subject =
+                            (doc.data()?['subject'] as String?) ?? '(件名なし)';
+                        final userId = (doc.data()?['userId'] as String?) ?? '';
+                        await firestore.collection('notifications').add({
+                          'message': 'お問い合わせ「$subject」に管理者から回答が届きました。',
+                          'timestamp': Timestamp.now(),
+                          'read': false,
+                          'type': 'contact_reply',
+                          'recipients': [userId],
+                        });
+
+                        if (ctx.mounted) Navigator.of(ctx).pop();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('回答を送信しました')),
+                          );
+                        }
+                      } on FirebaseException catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content:
+                                  Text('送信に失敗しました: ${e.message ?? e.code}'),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('送信に失敗しました: $e')),
+                          );
+                        }
+                      }
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: query.snapshots(),
+      builder: (context, snap) {
+        if (snap.hasError) return _errorView(snap.error!);
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = snap.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Center(child: Text('該当するお問い合わせはありません。'));
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (context, i) {
+            final data = docs[i].data();
+            final subject = (data['subject'] as String?) ?? '(件名なし)';
+            final name = (data['name'] as String?) ?? '';
+            final createdAt = _fmtTs(data['createdAt'] as Timestamp?);
+            final updatedAt = _fmtTs(data['updatedAt'] as Timestamp?);
+            final status = (data['status'] as String?) ?? 'open';
+            final category = (data['category'] as String?) ?? '';
+
+            return Card(
+              child: ListTile(
+                leading: const Icon(Icons.support_agent),
+                title: Text(
+                  subject,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text([
+                  if (name.isNotEmpty) 'ユーザー: $name',
+                  if (category.isNotEmpty) 'カテゴリ: $category',
+                  '作成: $createdAt  更新: $updatedAt',
+                ].join('\n')),
+                trailing: _statusChip(status),
+                onTap: () => _openTicketDialog(context, docs[i]),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
