@@ -8,25 +8,32 @@ import 'package:intl/intl.dart';
 import 'package:reservation_app/pdf_view_screen.dart';
 
 class HomeTab extends StatefulWidget {
-  final FirebaseAuth auth;
-  final FirebaseFirestore firestore;
-  final FirebaseFunctions functions;
+  final FirebaseAuth? _auth;
+  final FirebaseFirestore? _firestore;
+  final FirebaseFunctions? _functions;
+
+  FirebaseAuth get auth => _auth ?? FirebaseAuth.instance;
+  FirebaseFirestore get firestore => _firestore ?? FirebaseFirestore.instance;
+  FirebaseFunctions get functions => _functions ?? FirebaseFunctions.instance;
 
   const HomeTab({
-    Key? key,
+    super.key,
     FirebaseAuth? auth,
     FirebaseFirestore? firestore,
     FirebaseFunctions? functions,
-  })  : auth = auth ?? FirebaseAuth.instance,
-        firestore = firestore ?? FirebaseFirestore.instance,
-        functions = functions ?? FirebaseFunctions.instance,
-        super(key: key);
+  })  : _auth = auth,
+        _firestore = firestore,
+        _functions = functions;
 
   @override
   State<HomeTab> createState() => _HomeTabState();
 }
 
 class _HomeTabState extends State<HomeTab> {
+  static const _background = Color(0xFFF7F9FB);
+  static const _primary = Color(0xFF004D64);
+  static const _textMuted = Color(0xFF5E6C76);
+
   User? _currentUser;
   Map<String, dynamic>? _userInfo;
   String? _apartmentName;
@@ -422,83 +429,411 @@ class _HomeTabState extends State<HomeTab> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('マイページ'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await widget.auth.signOut();
-              if (mounted) Navigator.of(context).pushReplacementNamed('/login');
-            },
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: ListView(
-          children: [
-            Text('マンション名: $_apartmentName',
-                style: const TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text('部屋番号: ${_userInfo?['roomNumber'] ?? '不明'}',
-                style: const TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text('氏名: ${_userInfo?['name'] ?? '不明'}',
-                style: const TextStyle(fontSize: 18)),
-            const SizedBox(height: 24),
-            _buildSectionCard(
-              title: '新しい掲示',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => RecentBulletinPage(
-                      firestore: widget.firestore,
-                    ),
-                  ),
-                );
-              },
+      backgroundColor: _background,
+      body: SafeArea(
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                child: _buildHeader(context),
+              ),
             ),
-            _buildSectionCard(
-                title: '現在の予約内容',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CurrentReservationsPage(
-                        auth: widget.auth,
-                        firestore: widget.firestore,
-                      ),
-                    ),
-                  );
-                }),
-            _buildSectionCard(
-                title: 'プロフィール修正', onTap: () => _showProfileDialog(context)),
-            _buildSectionCard(
-                title: 'メールアドレスをリセット', onTap: () => _resetEmail(context)),
-            _buildSectionCard(
-                title: 'パスワードをリセット', onTap: () => _resetPassword(context)),
-            _buildSectionCard(
-                title: '家族アカウント作成', onTap: () => _showAddFamilyDialog(context)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+                child: _buildProfileHero(),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                child: _buildSectionTitle(
+                  '最新情報の確認',
+                  'よく使う情報へすぐに移動できます。',
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _buildSectionCard(
+                    title: '新しい掲示',
+                    subtitle: '直近1ヶ月のお知らせをまとめて確認',
+                    icon: Icons.forum_outlined,
+                    accentColor: const Color(0xFFE8F7FF),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => RecentBulletinPage(
+                            firestore: widget.firestore,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  _buildSectionCard(
+                    title: '現在の予約内容',
+                    subtitle: '自分と家族の予約状況を一覧表示',
+                    icon: Icons.event_available_rounded,
+                    accentColor: const Color(0xFFEFF7EA),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => CurrentReservationsPage(
+                            auth: widget.auth,
+                            firestore: widget.firestore,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ]),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 26, 20, 0),
+                child: _buildSectionTitle(
+                  'アカウント設定',
+                  'プロフィールや認証情報、家族アカウントを管理します。',
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _buildSectionCard(
+                    title: 'プロフィール修正',
+                    subtitle: '氏名など基本情報を更新',
+                    icon: Icons.edit_outlined,
+                    accentColor: const Color(0xFFFFF3EA),
+                    onTap: () => _showProfileDialog(context),
+                  ),
+                  _buildSectionCard(
+                    title: 'メールアドレスをリセット',
+                    subtitle: '確認メールで新しいアドレスへ変更',
+                    icon: Icons.alternate_email_rounded,
+                    accentColor: const Color(0xFFF2EEFF),
+                    onTap: () => _resetEmail(context),
+                  ),
+                  _buildSectionCard(
+                    title: 'パスワードをリセット',
+                    subtitle: '現在の認証情報を確認して更新',
+                    icon: Icons.lock_reset_rounded,
+                    accentColor: const Color(0xFFEAF4FF),
+                    onTap: () => _resetPassword(context),
+                  ),
+                  _buildSectionCard(
+                    title: '家族アカウント作成',
+                    subtitle: '同じ部屋番号の家族アカウントを追加',
+                    icon: Icons.group_add_outlined,
+                    accentColor: const Color(0xFFEFF7EA),
+                    onTap: () => _showAddFamilyDialog(context),
+                  ),
+                ]),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSectionCard(
-      {required String title, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 8.0),
-        child: ListTile(
-          title: Text(title,
-              style:
-                  const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          trailing: const Icon(Icons.arrow_forward_ios),
+  Widget _buildHeader(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Text(
+                'マイページ',
+                style: TextStyle(
+                  color: _primary,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'プロフィール、予約状況、各種設定をまとめて管理できます。',
+                style: TextStyle(
+                  color: _textMuted,
+                  fontSize: 13,
+                  height: 1.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
         ),
+        const SizedBox(width: 12),
+        Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: () async {
+              await widget.auth.signOut();
+              if (mounted) Navigator.of(context).pushReplacementNamed('/login');
+            },
+            child: const SizedBox(
+              width: 56,
+              height: 56,
+              child: Icon(Icons.logout_rounded, color: _primary),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProfileHero() {
+    final roomNumber = _userInfo?['roomNumber']?.toString() ?? '不明';
+    final userName = _userInfo?['name']?.toString() ?? '不明';
+    final email = _currentUser?.email ?? _userInfo?['email']?.toString() ?? '';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 24, 22, 24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFE8F7FF), Color(0xFFFFFFFF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14004D64),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: BoxDecoration(
+                  color: _primary,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Center(
+                  child: Text(
+                    userName.isNotEmpty ? userName.characters.first : '?',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      userName,
+                      style: const TextStyle(
+                        color: Color(0xFF182227),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      email.isNotEmpty ? email : 'メールアドレス未設定',
+                      style: const TextStyle(
+                        color: _textMuted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _InfoChip(
+                icon: Icons.apartment_rounded,
+                label: _apartmentName ?? '不明なマンション',
+              ),
+              _InfoChip(
+                icon: Icons.meeting_room_outlined,
+                label: '部屋番号 $roomNumber',
+                secondary: true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, String subtitle) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xFF172126),
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: _textMuted,
+            fontSize: 13,
+            height: 1.5,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color accentColor,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(28),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x12000000),
+                  blurRadius: 30,
+                  offset: Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+              child: Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: accentColor,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Icon(icon, color: _primary),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Color(0xFF182227),
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            color: _textMuted,
+                            fontSize: 13,
+                            height: 1.45,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F4F7),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Color(0xFF42525C),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool secondary;
+
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+    this.secondary = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: secondary ? const Color(0xFFF3F6F8) : const Color(0xFFD8ECF7),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: const Color(0xFF33515F)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF33515F),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
