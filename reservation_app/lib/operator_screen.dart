@@ -34,14 +34,21 @@ class OperatorScreen extends StatefulWidget {
 }
 
 class _OperatorScreenState extends State<OperatorScreen> {
+  static const _shellBackground = Color(0xFFF6F8FB);
+  static const _shellPrimary = Color(0xFF0C5D78);
+  static const _shellPrimaryDark = Color(0xFF083F53);
+  static const _shellText = Color(0xFF18242D);
+
   int _selectedIndex = 0;
   String? _apartmentId;
+  String? _apartmentName;
 
   bool _isFirstBuild = true; // ★ 初回だけ実行するためのフラグ
 
   List<Widget> get _pages => [
         HomeScreen(
           apartmentId: _apartmentId!,
+          apartmentName: _apartmentName,
           firestore: widget.firestore,
         ),
         FacilityCalendarScreen(
@@ -78,9 +85,7 @@ class _OperatorScreenState extends State<OperatorScreen> {
       final args = ModalRoute.of(context)?.settings.arguments;
 
       if (args is String) {
-        setState(() {
-          _apartmentId = args;
-        });
+        _setApartmentInfo(args);
       } else {
         // 引数がない場合（BuildingAdminと想定）、ログインユーザーのFirestore情報から取得
         final user = widget.auth.currentUser;
@@ -89,10 +94,8 @@ class _OperatorScreenState extends State<OperatorScreen> {
             if (doc.exists) {
               final data = doc.data();
               final apartment = data?['apartment'];
-              if (apartment != null && mounted) {
-                setState(() {
-                  _apartmentId = apartment;
-                });
+              if (apartment != null) {
+                _setApartmentInfo(apartment.toString());
               }
             }
           });
@@ -103,6 +106,105 @@ class _OperatorScreenState extends State<OperatorScreen> {
     }
   }
 
+  Future<void> _setApartmentInfo(String apartmentId) async {
+    if (!mounted) return;
+    setState(() {
+      _apartmentId = apartmentId;
+    });
+
+    try {
+      final apartmentDoc = await widget.firestore
+          .collection('apartments')
+          .doc(apartmentId)
+          .get();
+      final apartmentName = apartmentDoc.data()?['name']?.toString().trim();
+      if (!mounted) return;
+      setState(() {
+        _apartmentName =
+            apartmentName != null && apartmentName.isNotEmpty
+                ? apartmentName
+                : apartmentId;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _apartmentName = apartmentId;
+      });
+    }
+  }
+
+  Future<void> _handleDestinationSelected(int index) async {
+    if (index == 6) {
+      final shouldLogout = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('ログアウト確認'),
+          content: const Text('ログアウトしますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('ログアウト'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldLogout == true) {
+        await widget.auth.signOut();
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      }
+      return;
+    }
+
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  List<_OperatorNavItem> get _navigationItems => const [
+        _OperatorNavItem(
+          label: 'ホーム',
+          icon: Icons.home_rounded,
+          hint: 'ダッシュボード',
+        ),
+        _OperatorNavItem(
+          label: '施設カレンダー',
+          icon: Icons.calendar_month_rounded,
+          hint: '予約と施設管理',
+        ),
+        _OperatorNavItem(
+          label: '掲示板',
+          icon: Icons.forum_rounded,
+          hint: 'お知らせ運用',
+        ),
+        _OperatorNavItem(
+          label: '住人アカウント一覧',
+          icon: Icons.groups_rounded,
+          hint: '居住者管理',
+        ),
+        _OperatorNavItem(
+          label: 'お問い合わせ',
+          icon: Icons.support_agent_rounded,
+          hint: '回答対応',
+        ),
+        _OperatorNavItem(
+          label: 'プロフィール',
+          icon: Icons.person_rounded,
+          hint: 'アカウント設定',
+        ),
+        _OperatorNavItem(
+          label: 'ログアウト',
+          icon: Icons.logout_rounded,
+          hint: 'セッション終了',
+        ),
+      ];
+
   @override
   Widget build(BuildContext context) {
     if (_apartmentId == null) {
@@ -110,113 +212,190 @@ class _OperatorScreenState extends State<OperatorScreen> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
+    final activeItem = _navigationItems[_selectedIndex];
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'マンション管理者ダッシュボード',
-          style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-        ),
-      ),
+      backgroundColor: _shellBackground,
       body: Row(
         children: [
-          NavigationRail(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (int index) async {
-              if (index == 6) {
-                final shouldLogout = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('ログアウト確認'),
-                    content: const Text('ログアウトしますか？'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('キャンセル'),
+          Container(
+            width: 272,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _shellPrimaryDark,
+                  _shellPrimary,
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.08),
+                  blurRadius: 28,
+                  offset: const Offset(8, 0),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(26),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
                       ),
-                      ElevatedButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('ログアウト'),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Building Admin',
+                            style: TextStyle(
+                              color: Color(0xFFB9E6F5),
+                              fontSize: 12,
+                              letterSpacing: 1.3,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            'マンション管理\nダッシュボード',
+                            style: TextStyle(
+                              color: Colors.white,
+                              height: 1.15,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            '施設、掲示板、住民対応を1つの画面から管理します。',
+                            style: TextStyle(
+                              color: Color(0xFFCBE5EF),
+                              fontSize: 13,
+                              height: 1.55,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
-
-                if (shouldLogout == true) {
-                  await widget.auth.signOut();
-                  if (mounted) {
-                    Navigator.of(context).pushReplacementNamed('/login');
-                  }
-                }
-              } else {
-                setState(() {
-                  _selectedIndex = index;
-                });
-              }
-            },
-            backgroundColor: Colors.blue[900],
-            selectedIconTheme: const IconThemeData(color: Colors.white),
-            unselectedIconTheme: const IconThemeData(color: Colors.white70),
-            labelType: NavigationRailLabelType.all,
-            destinations: const [
-              NavigationRailDestination(
-                icon: Icon(Icons.home),
-                label: Text('ホーム',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 28),
+                    const Text(
+                      'MAIN MENU',
+                      style: TextStyle(
+                        color: Color(0xFFB9E6F5),
+                        fontSize: 11,
+                        letterSpacing: 1.8,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Expanded(
+                      child: ListView.separated(
+                        itemCount: _navigationItems.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final item = _navigationItems[index];
+                          final selected = index == _selectedIndex;
+                          return _OperatorSidebarButton(
+                            item: item,
+                            selected: selected,
+                            onTap: () => _handleDestinationSelected(index),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              NavigationRailDestination(
-                icon: Icon(Icons.calendar_today),
-                label: Text('施設カレンダー',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.message),
-                label: Text('掲示板',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.account_circle),
-                label: Text('住人アカウント一覧',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.support_agent),
-                label: Text('お問い合わせ',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.person),
-                label: Text('プロフィール',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.logout),
-                label: Text('ログアウト',
-                    style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold)),
-              ),
-            ],
+            ),
           ),
-          Expanded(child: _pages[_selectedIndex]),
+          Expanded(
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(28, 26, 28, 22),
+                  decoration: const BoxDecoration(
+                    color: _shellBackground,
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFE2E8EE)),
+                    ),
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                activeItem.label,
+                                style: const TextStyle(
+                                  color: _shellText,
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.9,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                activeItem.hint,
+                                style: const TextStyle(
+                                  color: Color(0xFF63727C),
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: const Color(0xFFDCE5EB),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.apartment_rounded,
+                                size: 18,
+                                color: _shellPrimary,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _apartmentName ?? _apartmentId ?? '',
+                                style: const TextStyle(
+                                  color: _shellText,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(child: _pages[_selectedIndex]),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -227,84 +406,331 @@ class _OperatorScreenState extends State<OperatorScreen> {
    ホーム画面
 ---------------------------------------------------------------- */
 class HomeScreen extends StatelessWidget {
+  static const _background = Color(0xFFF6F8FB);
+  static const _primary = Color(0xFF0C5D78);
+
   final String apartmentId;
+  final String? apartmentName;
   final FirebaseFirestore firestore;
 
   const HomeScreen({
     Key? key,
     required this.apartmentId,
+    required this.apartmentName,
     required this.firestore,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'ホーム',
-          style: TextStyle(
-            fontSize: 24,
-          ),
-        ),
-        centerTitle: true, // ★ タイトルを中央に表示
-        automaticallyImplyLeading: false, // ← 戻る矢印が出ないように（念のため）
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+    return Container(
+      color: _background,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(34),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFE7F5FB),
+                    Colors.white,
+                    Color(0xFFF5FBFE),
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primary.withValues(alpha: 0.10),
+                    blurRadius: 30,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x14004D64),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      'ADMIN HOME',
+                      style: TextStyle(
+                        color: _primary,
+                        fontSize: 12,
+                        letterSpacing: 1.4,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    '本日の運用状況を\nひと目で確認できます。',
+                    style: TextStyle(
+                      color: Color(0xFF18242D),
+                      fontSize: 34,
+                      height: 1.12,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    '施設予約、居住者数、お問い合わせ状況を ${apartmentName ?? apartmentId} の運用単位でまとめて確認できます。',
+                    style: const TextStyle(
+                      color: Color(0xFF5A6973),
+                      fontSize: 14,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            FutureBuilder<_OperatorDashboardSummary>(
+              future: _fetchSummary(),
+              builder: (context, snapshot) {
+                final summary = snapshot.data;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _DashboardMetricCard(
+                      title: '施設数',
+                      value: summary != null ? '${summary.facilityCount}' : '...',
+                      subtitle: '公開中の共用施設',
+                      icon: Icons.apartment_rounded,
+                    ),
+                    _DashboardMetricCard(
+                      title: '予約件数',
+                      value:
+                          summary != null ? '${summary.todayReservationCount}' : '...',
+                      subtitle: '本日の予約件数',
+                      icon: Icons.calendar_month_rounded,
+                    ),
+                    _DashboardMetricCard(
+                      title: '住人数',
+                      value: summary != null ? '${summary.residentCount}' : '...',
+                      subtitle: '登録済み居住者',
+                      icon: Icons.groups_rounded,
+                    ),
+                    _DashboardMetricCard(
+                      title: '未対応',
+                      value: summary != null ? '${summary.openContactCount}' : '...',
+                      subtitle: '対応中のお問い合わせ',
+                      icon: Icons.support_agent_rounded,
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 24),
             _buildDashboardCard(
               title: '施設予約状況表示',
-              buttonText: 'もっと見る',
+              description: '本日と翌日の予約内容を確認し、利用者と時間帯をまとめて把握できます。',
+              buttonText: '予約状況を見る',
+              icon: Icons.insights_rounded,
               onPressed: () => _showTodayAndTomorrowReservations(
                 context,
                 apartmentId,
                 firestore,
               ),
             ),
+            const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x12000000),
+                    blurRadius: 30,
+                    offset: Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '運用メモ',
+                    style: TextStyle(
+                      color: Color(0xFF18242D),
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'サイドバーから施設カレンダー、掲示板、住人管理、お問い合わせ対応に移動できます。まずはホームで全体件数を見て、優先対応が必要な項目から確認する運用を想定しています。',
+                    style: TextStyle(
+                      color: Color(0xFF5C6A74),
+                      fontSize: 14,
+                      height: 1.7,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
+  Future<_OperatorDashboardSummary> _fetchSummary() async {
+    final today = DateTime.now();
+    final startOfToday = DateTime(today.year, today.month, today.day);
+    final startOfTomorrow = startOfToday.add(const Duration(days: 1));
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> safeGet(
+      Future<QuerySnapshot<Map<String, dynamic>>> future,
+    ) async {
+      try {
+        return (await future).docs;
+      } catch (error, stackTrace) {
+        debugPrint('Dashboard summary fetch failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        return const [];
+      }
+    }
+
+    final facilityDocs = await safeGet(
+      firestore
+          .collection('facilities')
+          .where('apartment_id', isEqualTo: apartmentId)
+          .get(),
+    );
+    final residentDocs = await safeGet(
+      firestore
+          .collection('users')
+          .where('apartment', isEqualTo: apartmentId)
+          .get(),
+    );
+    final contactDocs = await safeGet(
+      firestore
+          .collection('contacts')
+          .where('apartment', isEqualTo: apartmentId)
+          .get(),
+    );
+    final reservationDocs = await safeGet(
+      firestore
+          .collection('reservations')
+          .where('apartmentId', isEqualTo: apartmentId)
+          .get(),
+    );
+
+    final residentCount = residentDocs
+        .where((doc) => doc.data()['role']?.toString() == 'Resident')
+        .length;
+    final openContactCount = contactDocs.where((doc) {
+      final status = doc.data()['status']?.toString().toLowerCase();
+      return status != 'closed';
+    }).length;
+    final todayReservationCount = reservationDocs.where((doc) {
+      final timestamp = doc.data()['date'];
+      if (timestamp is! Timestamp) return false;
+      final date = timestamp.toDate();
+      return !date.isBefore(startOfToday) && date.isBefore(startOfTomorrow);
+    }).length;
+
+    return _OperatorDashboardSummary(
+      facilityCount: facilityDocs.length,
+      residentCount: residentCount,
+      openContactCount: openContactCount,
+      todayReservationCount: todayReservationCount,
+    );
+  }
+
   Widget _buildDashboardCard({
     required String title,
+    required String description,
     required String buttonText,
+    required IconData icon,
     required VoidCallback onPressed,
   }) {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 30,
+            offset: Offset(0, 16),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD9EDF7),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Icon(icon, color: _primary, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF18242D),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
             Text(
-              title,
+              description,
               style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+                color: Color(0xFF5D6B75),
+                fontSize: 14,
+                height: 1.7,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 20),
             Align(
               alignment: Alignment.centerRight,
-              child: OutlinedButton(
+              child: FilledButton.tonal(
                 onPressed: onPressed,
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.purple),
+                style: FilledButton.styleFrom(
+                  foregroundColor: _primary,
+                  backgroundColor: const Color(0xFFD9EDF7),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(18),
                   ),
                 ),
                 child: Text(
                   buttonText,
                   style: const TextStyle(
-                    color: Colors.purple,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -314,6 +740,191 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OperatorNavItem {
+  final String label;
+  final String hint;
+  final IconData icon;
+
+  const _OperatorNavItem({
+    required this.label,
+    required this.icon,
+    required this.hint,
+  });
+}
+
+class _OperatorSidebarButton extends StatelessWidget {
+  final _OperatorNavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _OperatorSidebarButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = selected
+        ? Colors.white.withValues(alpha: 0.16)
+        : Colors.transparent;
+    final borderColor = selected
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.transparent;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  item.icon,
+                  color: selected
+                      ? const Color(0xFF0C5D78)
+                      : Colors.white,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      item.hint,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardMetricCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+
+  const _DashboardMetricCard({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x10000000),
+            blurRadius: 24,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xFFD9EDF7),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(icon, color: HomeScreen._primary, size: 24),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            value,
+            style: const TextStyle(
+              color: Color(0xFF18242D),
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.8,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF24323C),
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: Color(0xFF6B7882),
+              fontSize: 13,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OperatorDashboardSummary {
+  final int facilityCount;
+  final int residentCount;
+  final int openContactCount;
+  final int todayReservationCount;
+
+  const _OperatorDashboardSummary({
+    required this.facilityCount,
+    required this.residentCount,
+    required this.openContactCount,
+    required this.todayReservationCount,
+  });
 }
 
 void _showTodayAndTomorrowReservations(
@@ -447,6 +1058,10 @@ class FacilityCalendarScreen extends StatefulWidget {
 }
 
 class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
+  static const _background = Color(0xFFF6F8FB);
+  static const _primary = Color(0xFF0C5D78);
+  static const _textMuted = Color(0xFF60707A);
+
   List<Map<String, dynamic>> _facilities = [];
   String? _selectedFacilityId;
   Set<String> _unavailableDays = {};
@@ -1427,77 +2042,165 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
                 _showDayReservationsDialog(day);
               },
               child: Container(
-                margin: const EdgeInsets.all(4),
-                padding: const EdgeInsets.all(4),
+                margin: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isUnavailable
+                        ? const Color(0xFFFFD6D0)
+                        : const Color(0xFFDCE5EB),
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x08000000),
+                      blurRadius: 12,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '$day日',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: isUnavailable ? Colors.red : Colors.black,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$day日',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: isUnavailable
+                                  ? const Color(0xFFCA4B39)
+                                  : const Color(0xFF1B2730),
+                            ),
+                          ),
+                        ),
+                        if (dayReservations.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD9EDF7),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${dayReservations.length}件',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: _primary,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
+                    const SizedBox(height: 8),
                     if (isUnavailable)
-                      if (isUnavailable)
-                        FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                          future: widget.firestore
-                              .collection('facilities')
-                              .doc(_selectedFacilityId)
-                              .collection('unavailable_dates')
-                              .doc(dateStr)
-                              .get(),
-                          builder: (context, snapshot) {
-                            if (snapshot.connectionState !=
-                                ConnectionState.done) {
-                              return const Text('予約不可',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.red));
-                            }
-                            if (!snapshot.hasData || !snapshot.data!.exists) {
-                              return const Text('予約不可',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.red));
-                            }
-                            final data = snapshot.data!.data()!;
-                            if (data['allDay'] == true) {
-                              return const Text('1日予約不可',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.red));
-                            } else {
-                              final times = List<String>.from(
-                                  data['unavailableTimes'] ?? []);
-                              if (times.isEmpty) {
-                                return const Text('予約不可',
-                                    style: TextStyle(
-                                        fontSize: 12, color: Colors.red));
-                              }
-                              final start = times.first;
-                              final end = _addThirtyMinutes(times.last);
-                              return Text(
-                                '$start～$end 予約不可',
-                                style: const TextStyle(
-                                    fontSize: 12, color: Colors.red),
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF0ED),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          '予約不可あり',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFFCA4B39),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    if (isUnavailable)
+                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        future: widget.firestore
+                            .collection('facilities')
+                            .doc(_selectedFacilityId)
+                            .collection('unavailable_dates')
+                            .doc(dateStr)
+                            .get(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState != ConnectionState.done) {
+                            return const Text(
+                              '予約不可を確認中',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFFCA4B39),
+                              ),
+                            );
+                          }
+                          if (!snapshot.hasData || !snapshot.data!.exists) {
+                            return const SizedBox.shrink();
+                          }
+                          final data = snapshot.data!.data()!;
+                          if (data['allDay'] == true) {
+                            return const Text(
+                              '1日予約不可',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFFCA4B39),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            );
+                          } else {
+                            final times =
+                                List<String>.from(data['unavailableTimes'] ?? []);
+                            if (times.isEmpty) {
+                              return const Text(
+                                '予約不可',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFFCA4B39),
+                                ),
                               );
                             }
-                          },
-                        ),
+                            final start = times.first;
+                            final end = _addThirtyMinutes(times.last);
+                            return Text(
+                              '$start～$end 予約不可',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFFCA4B39),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    const SizedBox(height: 6),
                     for (int i = 0; i < displayedIntervals.length; i++)
-                      Text(
-                        displayedIntervals[i],
-                        style: const TextStyle(fontSize: 12),
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F8FB),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          displayedIntervals[i],
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF30414C),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     if (dayReservations.length > 3)
                       const Text(
-                        '...',
-                        style: TextStyle(fontSize: 12, color: Colors.red),
+                        'さらに表示...',
+                        style: TextStyle(fontSize: 11, color: _primary),
                       ),
                   ],
                 ),
@@ -1514,39 +2217,52 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
     return Column(
       children: [
         // 曜日ラベル
-        const Row(
-          children: [
-            Expanded(
-                child: Center(
-                    child: Text('日',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-            Expanded(
-                child: Center(
-                    child: Text('月',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-            Expanded(
-                child: Center(
-                    child: Text('火',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-            Expanded(
-                child: Center(
-                    child: Text('水',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-            Expanded(
-                child: Center(
-                    child: Text('木',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-            Expanded(
-                child: Center(
-                    child: Text('金',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-            Expanded(
-                child: Center(
-                    child: Text('土',
-                        style: TextStyle(fontWeight: FontWeight.bold)))),
-          ],
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF3F7FA),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Row(
+            children: [
+              Expanded(
+                  child: Center(
+                      child: Text('日',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFCA4B39),
+                          )))),
+              Expanded(
+                  child: Center(
+                      child: Text('月',
+                          style: TextStyle(fontWeight: FontWeight.w800)))),
+              Expanded(
+                  child: Center(
+                      child: Text('火',
+                          style: TextStyle(fontWeight: FontWeight.w800)))),
+              Expanded(
+                  child: Center(
+                      child: Text('水',
+                          style: TextStyle(fontWeight: FontWeight.w800)))),
+              Expanded(
+                  child: Center(
+                      child: Text('木',
+                          style: TextStyle(fontWeight: FontWeight.w800)))),
+              Expanded(
+                  child: Center(
+                      child: Text('金',
+                          style: TextStyle(fontWeight: FontWeight.w800)))),
+              Expanded(
+                  child: Center(
+                      child: Text('土',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: _primary,
+                          )))),
+            ],
+          ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         Expanded(
           child: GridView.count(
             crossAxisCount: 7,
@@ -1793,145 +2509,252 @@ class _FacilityCalendarScreenState extends State<FacilityCalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final buttonStyle = ElevatedButton.styleFrom(
-      fixedSize: const Size(160, 40),
-    );
-
     final year = _selectedMonth.year;
     final month = _selectedMonth.month.toString().padLeft(2, '0');
+    final selectedFacility = _facilities.cast<Map<String, dynamic>?>().firstWhere(
+          (facility) => facility?['id'] == _selectedFacilityId,
+          orElse: () => null,
+        );
+    final facilityName = selectedFacility?['name']?.toString() ?? '施設を選択';
 
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          // 施設カレンダータイトル（中央）
-          const Padding(
-            padding: EdgeInsets.only(bottom: 16.0),
-            child: Center(
-              child: Text(
-                '施設カレンダー',
-                style: TextStyle(
-                  fontSize: 24,
+    return Container(
+      color: _background,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x12000000),
+                      blurRadius: 30,
+                      offset: Offset(0, 16),
+                    ),
+                  ],
                 ),
-              ),
-            ),
-          ),
-
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 左側: 施設プルダウン
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    '施設名: ',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  if (_facilities.isEmpty)
-                    const Text('読み込み中...')
-                  else
-                    Material(
-                      elevation: 2,
-                      borderRadius: BorderRadius.circular(8),
-                      color: Theme.of(context).primaryColor,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            dropdownColor: Theme.of(context).primaryColor,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
+                child: Column(
+                  children: [
+                    Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '対象施設',
+                            style: TextStyle(
+                              color: Color(0xFF6B7882),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                             ),
-                            iconEnabledColor: Colors.white,
-                            value: _selectedFacilityId,
-                            items: _facilities.map((facility) {
-                              return DropdownMenuItem<String>(
-                                value: facility['id'],
-                                child: Text(facility['name'] ?? '名称不明'),
-                              );
-                            }).toList(),
-                            onChanged: _onFacilityChanged,
                           ),
+                          const SizedBox(height: 8),
+                          if (_facilities.isEmpty)
+                            const Text(
+                              '施設を読み込み中...',
+                              style: TextStyle(
+                                color: Color(0xFF18242D),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF4F8FB),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: const Color(0xFFDCE5EB),
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  value: _selectedFacilityId,
+                                  icon: const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                    color: _primary,
+                                  ),
+                                  style: const TextStyle(
+                                    color: Color(0xFF18242D),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  items: _facilities.map((facility) {
+                                    return DropdownMenuItem<String>(
+                                      value: facility['id'],
+                                      child:
+                                          Text(facility['name'] ?? '名称不明'),
+                                    );
+                                  }).toList(),
+                                  onChanged: _onFacilityChanged,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            _CalendarActionButton(
+                              label: '新規施設追加',
+                              icon: Icons.add_business_rounded,
+                              onPressed: _addNewFacility,
+                            ),
+                            const SizedBox(width: 8),
+                            _CalendarActionButton(
+                              label: '施設削除',
+                              icon: Icons.delete_outline_rounded,
+                              onPressed: _deleteFacility,
+                            ),
+                            const SizedBox(width: 8),
+                            _CalendarActionButton(
+                              label: '予約不可設定',
+                              icon: Icons.event_busy_rounded,
+                              onPressed: _editCalendar,
+                            ),
+                            const SizedBox(width: 8),
+                            _CalendarActionButton(
+                              label: '予定のエクスポート',
+                              icon: Icons.file_download_outlined,
+                              onPressed: _exportSchedule,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                ],
-              ),
-
-              // ←★ 追加：左と右を分けるためのスペーサー
-              const Spacer(),
-
-              // 右側: ボタン群
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  ElevatedButton(
-                    style: buttonStyle,
-                    onPressed: _addNewFacility,
-                    child: const Text('新規施設追加'),
+                  ],
+                ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 14,
+                      ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF5F8FB),
+                    borderRadius: BorderRadius.circular(22),
                   ),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    style: buttonStyle,
-                    onPressed: _deleteFacility,
-                    child: const Text('施設削除'),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.chevron_left_rounded),
+                          onPressed: _previousMonth,
+                          color: _primary,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                Text(
+                                  '$year年 $month月',
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF18242D),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  '日付セルをクリックすると予約内容と予約不可設定を確認できます。',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _textMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                      ),
+                      const SizedBox(width: 16),
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: IconButton(
+                          icon: const Icon(Icons.chevron_right_rounded),
+                          onPressed: _nextMonth,
+                          color: _primary,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    style: buttonStyle,
-                    onPressed: _editCalendar,
-                    child: const Text('予約不可設定'),
-                  ),
-                ],
+                ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(24),
+                              child: _buildCalendar(),
+                            ),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // 月切り替え
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                onPressed: _previousMonth,
-              ),
-              Text('$year年 $month月', style: const TextStyle(fontSize: 16)),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                onPressed: _nextMonth,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // カレンダー表示
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : Container(
-                    width: double.infinity,
-                    color: Colors.grey[200],
-                    child: _buildCalendar(),
-                  ),
-          ),
-          const SizedBox(height: 16),
-
-          // 予定のエクスポート
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton(
-              onPressed: _exportSchedule,
-              child: const Text('予定のエクスポート'),
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CalendarActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _CalendarActionButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonalIcon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        foregroundColor: const Color(0xFF0C5D78),
+        backgroundColor: const Color(0xFFD9EDF7),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -1957,6 +2780,11 @@ class BulletinBoardScreen extends StatefulWidget {
 }
 
 class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
+  static const _background = Color(0xFFF6F8FB);
+  static const _primary = Color(0xFF0C5D78);
+  static const _textMuted = Color(0xFF60707A);
+  static const _textStrong = Color(0xFF18242D);
+
   late final FirebaseFirestore firestore;
   List<Map<String, dynamic>> _posts = [];
 
@@ -2134,39 +2962,158 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
     final ts = post['createdAt'] as Timestamp;
     final dt = ts.toDate();
     final formatted = DateFormat('yyyy/MM/dd HH:mm').format(dt);
+    final hasPdf = post['pdfUrl'] != null;
 
     return MouseRegion(
-      cursor: SystemMouseCursors.click, // ← カーソルを手の形に
-      child: GestureDetector(
-        onTap: () => _showPostDetailDialog(context, post),
-        child: Card(
-          elevation: 3,
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Colors.white,
+      cursor: SystemMouseCursors.click,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.only(bottom: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 14),
             ),
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(post['title'],
+          ],
+        ),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(28),
+            onTap: () => _showPostDetailDialog(context, post),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFFE1F4FA),
+                              Color(0xFFCDEAF4),
+                            ],
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.campaign_rounded,
+                          color: _primary,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              post['title'],
+                              style: const TextStyle(
+                                fontSize: 24,
+                                height: 1.2,
+                                fontWeight: FontWeight.w900,
+                                color: _textStrong,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              formatted,
+                              style: const TextStyle(
+                                color: _textMuted,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: hasPdf
+                              ? const Color(0xFFF3FBFE)
+                              : const Color(0xFFF4F6F8),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          hasPdf ? 'PDF添付あり' : '本文のみ',
+                          style: TextStyle(
+                            color: hasPdf ? _primary : _textMuted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    post['body'],
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 6),
-                Text(formatted,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(height: 12),
-                Text(post['body']),
-                if (post['pdfUrl'] != null) ...[
-                  const SizedBox(height: 12),
-                  const Text('PDFあり', style: TextStyle(color: Colors.blue)),
-                ]
-              ],
+                      color: Color(0xFF42515C),
+                      fontSize: 15,
+                      height: 1.8,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF2F7FA),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.touch_app_rounded,
+                              size: 16,
+                              color: _primary,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'クリックで詳細を表示',
+                              style: TextStyle(
+                                color: _primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      const Icon(
+                        Icons.arrow_forward_rounded,
+                        color: _primary,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -2369,55 +3316,258 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
   // --- build() 内の該当部分 ---
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
+    final pdfCount = _posts.where((post) => post['pdfUrl'] != null).length;
+    final latestPostDate = _posts.isEmpty
+        ? '未投稿'
+        : DateFormat('yyyy/MM/dd').format(
+            (_posts.first['createdAt'] as Timestamp).toDate(),
+          );
+
+    return Container(
+      color: _background,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Center(
-            child: Text(
-              '掲示板',
-              style: TextStyle(fontSize: 24),
-            ),
-          ),
-          const SizedBox(height: 8),
-
-          // ← 追加：投稿数の表示
-          Center(
-            child: Text(
-              '投稿数: ${_posts.length}/100',
-              style: const TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton(
-              // 投稿数が100以上なら無効化
-              onPressed: _posts.length >= 100
-                  ? null
-                  : () {
-                      _showCreatePostDialog();
-                    },
-              child: const Text('新規掲示板作成'),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // （以下、既存のリスト表示…）
           Expanded(
-            child: _posts.isEmpty
-                ? const Center(child: Text('まだ掲示はありません'))
-                : ListView.builder(
-                    itemCount: _posts.length,
-                    itemBuilder: (context, index) {
-                      return _buildPostCard(_posts[index]);
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(34),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFE7F5FB),
+                        Colors.white,
+                        Color(0xFFF4FBFE),
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _primary.withValues(alpha: 0.10),
+                        blurRadius: 30,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 980;
+                      final infoColumn = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0x14004D64),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              'NOTICE BOARD',
+                              style: TextStyle(
+                                color: _primary,
+                                fontSize: 12,
+                                letterSpacing: 1.4,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          const Text(
+                            '掲示板の投稿と\n周知状況をまとめて管理します。',
+                            style: TextStyle(
+                              color: _textStrong,
+                              fontSize: 34,
+                              height: 1.12,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: -0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            '住民向けのお知らせを一覧で確認し、PDF添付の有無や最新投稿日をひと目で把握できます。重要な案内は新規作成からすぐに追加してください。',
+                            style: TextStyle(
+                              color: Color(0xFF5A6973),
+                              fontSize: 14,
+                              height: 1.7,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          FilledButton.tonalIcon(
+                            onPressed:
+                                _posts.length >= 100 ? null : _showCreatePostDialog,
+                            icon: const Icon(Icons.add_rounded),
+                            label: Text(
+                              _posts.length >= 100
+                                  ? '投稿上限に到達しています'
+                                  : '新規掲示板を作成',
+                            ),
+                            style: FilledButton.styleFrom(
+                              foregroundColor: _primary,
+                              backgroundColor: const Color(0xFFD9EDF7),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 16,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+
+                      final summaryPanel = Container(
+                        width: compact ? double.infinity : 280,
+                        padding: const EdgeInsets.all(22),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.88),
+                          borderRadius: BorderRadius.circular(28),
+                          border: Border.all(
+                            color: const Color(0x140C5D78),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              '運用サマリー',
+                              style: TextStyle(
+                                color: _textStrong,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            _buildOverviewRow(
+                              label: '投稿数',
+                              value: '${_posts.length}/100',
+                            ),
+                            const SizedBox(height: 14),
+                            _buildOverviewRow(
+                              label: 'PDF添付',
+                              value: '$pdfCount件',
+                            ),
+                            const SizedBox(height: 14),
+                            _buildOverviewRow(
+                              label: '最新投稿日',
+                              value: latestPostDate,
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (compact) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            infoColumn,
+                            const SizedBox(height: 22),
+                            summaryPanel,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: infoColumn),
+                          const SizedBox(width: 24),
+                          summaryPanel,
+                        ],
+                      );
                     },
                   ),
+                ),
+                const SizedBox(height: 24),
+                if (_posts.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 40,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(30),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x12000000),
+                          blurRadius: 30,
+                          offset: Offset(0, 16),
+                        ),
+                      ],
+                    ),
+                    child: const Column(
+                      children: [
+                        Icon(
+                          Icons.forum_rounded,
+                          size: 52,
+                          color: _primary,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'まだ掲示はありません',
+                          style: TextStyle(
+                            color: _textStrong,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        Text(
+                          '管理からお知らせを投稿すると、ここに一覧表示されます。',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _textMuted,
+                            fontSize: 14,
+                            height: 1.7,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  ..._posts.map(_buildPostCard),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildOverviewRow({
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _textMuted,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: _textStrong,
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2426,6 +3576,11 @@ class _BulletinBoardScreenState extends State<BulletinBoardScreen> {
    アカウント管理画面（サイドバーが消えない修正版）
 ---------------------------------------------------------------- */
 class AccountScreen extends StatelessWidget {
+  static const _background = Color(0xFFF6F8FB);
+  static const _primary = Color(0xFF0C5D78);
+  static const _textMuted = Color(0xFF60707A);
+  static const _textStrong = Color(0xFF18242D);
+
   final String apartmentId;
   final FirebaseAuth auth;
   final FirebaseFirestore firestore;
@@ -2803,82 +3958,419 @@ class AccountScreen extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: const Text(
-          '住人アカウント一覧',
-          style: TextStyle(fontSize: 24),
+  Widget _buildActionButton({
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    required Color backgroundColor,
+    required Color foregroundColor,
+  }) {
+    return FilledButton.tonalIcon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        foregroundColor: foregroundColor,
+        backgroundColor: backgroundColor,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
         ),
       ),
-      body: Column(
-        children: [
-          const SizedBox(height: 16),
-          // 右寄せ・縦並びの操作ボタン
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                const Spacer(),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    ElevatedButton(
-                      onPressed: () => _createResidentAccount(context),
-                      child: const Text('新規住人アカウント作成'),
+    );
+  }
+
+  Widget _buildResidentCard(
+    BuildContext context,
+    Map<String, dynamic> resident,
+  ) {
+    final name = resident['name']?.toString().trim();
+    final roomNumber = resident['roomNumber']?.toString().trim();
+    final email = resident['email']?.toString().trim();
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(28),
+            onTap: () => _showResidentDialog(context, resident),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Row(
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFE1F4FA),
+                          Color(0xFFCDEAF4),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    ElevatedButton(
-                      onPressed: () => _bulkCreateResidents(context),
-                      child: const Text('一括入居者追加'),
+                    child: const Icon(
+                      Icons.person_rounded,
+                      color: _primary,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name == null || name.isEmpty ? '名前未設定' : name,
+                          style: const TextStyle(
+                            color: _textStrong,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF2F7FA),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '部屋番号 ${roomNumber == null || roomNumber.isEmpty ? '未設定' : roomNumber}',
+                                style: const TextStyle(
+                                  color: _primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            if (email != null && email.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF6F8FA),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  email,
+                                  style: const TextStyle(
+                                    color: _textMuted,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: _primary,
+                    size: 24,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: _background,
+      child: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _residentStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('読み込みに失敗しました: ${snapshot.error}'));
+          }
+
+          final residents = snapshot.data ?? [];
+          final roomCount = residents
+              .map((resident) => resident['roomNumber']?.toString() ?? '')
+              .where((room) => room.isNotEmpty)
+              .toSet()
+              .length;
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(34),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFFE7F5FB),
+                      Colors.white,
+                      Color(0xFFF4FBFE),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _primary.withValues(alpha: 0.10),
+                      blurRadius: 30,
+                      offset: const Offset(0, 16),
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 1020;
+                    final infoColumn = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0x14004D64),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Text(
+                            'RESIDENT ACCOUNTS',
+                            style: TextStyle(
+                              color: _primary,
+                              fontSize: 12,
+                              letterSpacing: 1.4,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          '住人アカウントを\n一覧管理できます。',
+                          style: TextStyle(
+                            color: _textStrong,
+                            fontSize: 34,
+                            height: 1.12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          '登録済みアカウントの確認、個別作成、CSV一括追加をこの画面から行えます。部屋番号ごとの管理状況もひと目で把握できます。',
+                          style: TextStyle(
+                            color: Color(0xFF5A6973),
+                            fontSize: 14,
+                            height: 1.7,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            _buildActionButton(
+                              onPressed: () => _createResidentAccount(context),
+                              icon: Icons.person_add_alt_1_rounded,
+                              label: '新規住人アカウント作成',
+                              backgroundColor: const Color(0xFFD9EDF7),
+                              foregroundColor: _primary,
+                            ),
+                            _buildActionButton(
+                              onPressed: () => _bulkCreateResidents(context),
+                              icon: Icons.upload_file_rounded,
+                              label: '一括入居者追加',
+                              backgroundColor: const Color(0xFFEAF3F7),
+                              foregroundColor: _primary,
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
 
-          // 変更ポイント②: StreamBuilder で自動更新・再描画
-          Expanded(
-            child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _residentStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('読み込みに失敗しました: ${snapshot.error}'));
-                }
-                final residents = snapshot.data ?? [];
-                if (residents.isEmpty) {
-                  return const Center(child: Text('住人情報が見つかりませんでした。'));
-                }
-
-                return ListView.builder(
-                  itemCount: residents.length,
-                  itemBuilder: (context, index) {
-                    final resident = residents[index];
-                    return Card(
-                      margin: const EdgeInsets.all(8.0),
-                      child: ListTile(
-                        leading: const Icon(Icons.person),
-                        title: Text(resident['name'] ?? '名前不明'),
-                        subtitle:
-                            Text('部屋番号: ${resident['roomNumber'] ?? '不明'}'),
-                        trailing: const Icon(Icons.arrow_forward_ios),
-                        onTap: () => _showResidentDialog(context, resident),
+                    final summaryPanel = Container(
+                      width: compact ? double.infinity : 300,
+                      padding: const EdgeInsets.all(22),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.88),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: const Color(0x140C5D78),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '運用サマリー',
+                            style: TextStyle(
+                              color: _textStrong,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          _buildSummaryRow(
+                            label: '登録アカウント',
+                            value: '${residents.length}件',
+                          ),
+                          const SizedBox(height: 14),
+                          _buildSummaryRow(
+                            label: '登録部屋数',
+                            value: '$roomCount室',
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'カードをクリックすると削除を含む詳細操作を開けます。',
+                            style: TextStyle(
+                              color: _textMuted,
+                              fontSize: 13,
+                              height: 1.6,
+                            ),
+                          ),
+                        ],
                       ),
                     );
+
+                    if (compact) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          infoColumn,
+                          const SizedBox(height: 22),
+                          summaryPanel,
+                        ],
+                      );
+                    }
+
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: infoColumn),
+                        const SizedBox(width: 24),
+                        summaryPanel,
+                      ],
+                    );
                   },
-                );
-              },
+                ),
+              ),
+              const SizedBox(height: 24),
+              if (residents.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28,
+                    vertical: 40,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x12000000),
+                        blurRadius: 30,
+                        offset: Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: const Column(
+                    children: [
+                      Icon(
+                        Icons.groups_rounded,
+                        size: 52,
+                        color: _primary,
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        '住人情報が見つかりませんでした',
+                        style: TextStyle(
+                          color: _textStrong,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Text(
+                        '新規作成またはCSVアップロードで住人アカウントを追加してください。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _textMuted,
+                          fontSize: 14,
+                          height: 1.7,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ...residents.map((resident) => _buildResidentCard(context, resident)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow({
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _textMuted,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ],
-      ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: _textStrong,
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -2902,6 +4394,11 @@ class ContactScreen extends StatefulWidget {
 
 class _ContactScreenState extends State<ContactScreen>
     with SingleTickerProviderStateMixin {
+  static const _background = Color(0xFFF6F8FB);
+  static const _primary = Color(0xFF0C5D78);
+  static const _textMuted = Color(0xFF60707A);
+  static const _textStrong = Color(0xFF18242D);
+
   late final TabController _tab;
 
   @override
@@ -2922,30 +4419,198 @@ class _ContactScreenState extends State<ContactScreen>
         .collection('contacts')
         .where('apartment', isEqualTo: widget.apartmentId);
 
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: const Text('お問い合わせ', style: TextStyle(fontSize: 24)),
-        bottom: TabBar(
-          controller: _tab,
-          tabs: const [
-            Tab(text: '未回答'),
-            Tab(text: '全件'),
-          ],
-        ),
-      ),
-      body: TabBarView(
-        controller: _tab,
+    return Container(
+      color: _background,
+      child: Column(
         children: [
-          _ContactListView(
-            query: baseQuery
-                .where('status', isEqualTo: 'open')
-                .orderBy('updatedAt', descending: true),
-            firestore: widget.firestore,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 24, 28, 0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(34),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFE7F5FB),
+                    Colors.white,
+                    Color(0xFFF4FBFE),
+                  ],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: _primary.withValues(alpha: 0.10),
+                    blurRadius: 30,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 980;
+                  final infoColumn = const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _ContactHeroBadge(),
+                      SizedBox(height: 18),
+                      Text(
+                        'お問い合わせの確認と\n回答対応をまとめて行えます。',
+                        style: TextStyle(
+                          color: _textStrong,
+                          fontSize: 34,
+                          height: 1.12,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.8,
+                        ),
+                      ),
+                      SizedBox(height: 14),
+                      Text(
+                        '未回答チケットを優先的に確認し、全件履歴も同じ画面で追跡できます。カードを選ぶと、そのまま返信やクローズ操作へ進めます。',
+                        style: TextStyle(
+                          color: Color(0xFF5A6973),
+                          fontSize: 14,
+                          height: 1.7,
+                        ),
+                      ),
+                    ],
+                  );
+
+                  final summaryPanel = Container(
+                    width: compact ? double.infinity : 300,
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: const Color(0x140C5D78),
+                      ),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '画面の見方',
+                          style: TextStyle(
+                            color: _textStrong,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 18),
+                        _ContactSummaryRow(
+                          label: '未回答',
+                          value: '優先確認',
+                        ),
+                        SizedBox(height: 14),
+                        _ContactSummaryRow(
+                          label: '全件',
+                          value: '履歴確認',
+                        ),
+                        SizedBox(height: 14),
+                        Text(
+                          'タブで対象を切り替えて、カードから詳細ダイアログを開きます。',
+                          style: TextStyle(
+                            color: _textMuted,
+                            fontSize: 13,
+                            height: 1.6,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (compact) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        infoColumn,
+                        const SizedBox(height: 22),
+                        summaryPanel,
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: infoColumn),
+                      const SizedBox(width: 24),
+                      summaryPanel,
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
-          _ContactListView(
-            query: baseQuery.orderBy('updatedAt', descending: true),
-            firestore: widget.firestore,
+          const SizedBox(height: 24),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(28, 0, 28, 32),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x12000000),
+                      blurRadius: 30,
+                      offset: Offset(0, 16),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    TabBar(
+                      controller: _tab,
+                      dividerColor: Colors.transparent,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      indicator: BoxDecoration(
+                        color: const Color(0xFFD9EDF7),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      labelColor: _primary,
+                      unselectedLabelColor: _textMuted,
+                      labelStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      unselectedLabelStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      tabs: const [
+                        Tab(text: '未回答'),
+                        Tab(text: '全件'),
+                      ],
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tab,
+                        children: [
+                          _ContactListView(
+                            query: baseQuery
+                                .where('status', isEqualTo: 'open')
+                                .orderBy('updatedAt', descending: true),
+                            firestore: widget.firestore,
+                          ),
+                          _ContactListView(
+                            query: baseQuery.orderBy(
+                              'updatedAt',
+                              descending: true,
+                            ),
+                            firestore: widget.firestore,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -2954,6 +4619,10 @@ class _ContactScreenState extends State<ContactScreen>
 }
 
 class _ContactListView extends StatelessWidget {
+  static const _primary = Color(0xFF0C5D78);
+  static const _textMuted = Color(0xFF60707A);
+  static const _textStrong = Color(0xFF18242D);
+
   final Query<Map<String, dynamic>> query;
   final FirebaseFirestore firestore;
 
@@ -2993,7 +4662,153 @@ class _ContactListView extends StatelessWidget {
     return Chip(
       label: Text(label),
       backgroundColor: c.withOpacity(0.15),
-      labelStyle: TextStyle(color: c),
+      side: BorderSide.none,
+      labelStyle: TextStyle(
+        color: c,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  Widget _buildTicketCard(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data()!;
+    final subject = (data['subject'] as String?) ?? '(件名なし)';
+    final name = (data['name'] as String?) ?? '';
+    final createdAt = _fmtTs(data['createdAt'] as Timestamp?);
+    final updatedAt = _fmtTs(data['updatedAt'] as Timestamp?);
+    final status = (data['status'] as String?) ?? 'open';
+    final category = (data['category'] as String?) ?? '';
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(28),
+            onTap: () => _openTicketDialog(context, doc),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFE1F4FA),
+                          Color(0xFFCDEAF4),
+                        ],
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.support_agent_rounded,
+                      color: _primary,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          subject,
+                          style: const TextStyle(
+                            color: _textStrong,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            _statusChip(status),
+                            if (category.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF2F7FA),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  category,
+                                  style: const TextStyle(
+                                    color: _primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        if (name.isNotEmpty)
+                          Text(
+                            'ユーザー: $name',
+                            style: const TextStyle(
+                              color: _textMuted,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '作成: $createdAt',
+                          style: const TextStyle(
+                            color: _textMuted,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '更新: $updatedAt',
+                          style: const TextStyle(
+                            color: _textMuted,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: _primary,
+                    size: 24,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -3312,38 +5127,35 @@ class _ContactListView extends StatelessWidget {
         }
         final docs = snap.data?.docs ?? [];
         if (docs.isEmpty) {
-          return const Center(child: Text('該当するお問い合わせはありません。'));
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.mark_email_read_rounded,
+                  size: 52,
+                  color: _primary,
+                ),
+                SizedBox(height: 16),
+                Text(
+                  '該当するお問い合わせはありません。',
+                  style: TextStyle(
+                    color: _textStrong,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
         return ListView.separated(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
           itemCount: docs.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          separatorBuilder: (_, __) => const SizedBox(height: 14),
           itemBuilder: (context, i) {
-            final data = docs[i].data();
-            final subject = (data['subject'] as String?) ?? '(件名なし)';
-            final name = (data['name'] as String?) ?? '';
-            final createdAt = _fmtTs(data['createdAt'] as Timestamp?);
-            final updatedAt = _fmtTs(data['updatedAt'] as Timestamp?);
-            final status = (data['status'] as String?) ?? 'open';
-            final category = (data['category'] as String?) ?? '';
-
-            return Card(
-              child: ListTile(
-                leading: const Icon(Icons.support_agent),
-                title: Text(
-                  subject,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                subtitle: Text([
-                  if (name.isNotEmpty) 'ユーザー: $name',
-                  if (category.isNotEmpty) 'カテゴリ: $category',
-                  '作成: $createdAt  更新: $updatedAt',
-                ].join('\n')),
-                trailing: _statusChip(status),
-                onTap: () => _openTicketDialog(context, docs[i]),
-              ),
-            );
+            return _buildTicketCard(context, docs[i]);
           },
         );
       },
@@ -3351,7 +5163,102 @@ class _ContactListView extends StatelessWidget {
   }
 }
 
+class _ContactHeroBadge extends StatelessWidget {
+  const _ContactHeroBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0x14004D64),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: const Text(
+        'CONTACT SUPPORT',
+        style: TextStyle(
+          color: _ContactScreenState._primary,
+          fontSize: 12,
+          letterSpacing: 1.4,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _ContactSummaryRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ContactSummaryRow({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _ContactScreenState._textMuted,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: _ContactScreenState._textStrong,
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileHeroBadge extends StatelessWidget {
+  const _ProfileHeroBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0x14004D64),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: const Text(
+        'ACCOUNT SETTINGS',
+        style: TextStyle(
+          color: ProfileScreen._primary,
+          fontSize: 12,
+          letterSpacing: 1.4,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 class ProfileScreen extends StatelessWidget {
+  static const _background = Color(0xFFF6F8FB);
+  static const _primary = Color(0xFF0C5D78);
+  static const _textMuted = Color(0xFF60707A);
+  static const _textStrong = Color(0xFF18242D);
+
   final FirebaseAuth auth;
   const ProfileScreen({Key? key, required this.auth}) : super(key: key);
 
@@ -3362,48 +5269,278 @@ class ProfileScreen extends StatelessWidget {
       return const Center(child: Text('ログインが必要です'));
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
+    return Container(
+      color: _background,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 32),
         children: [
-          const Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Spacer(),
-              Text('プロフィール', style: TextStyle(fontSize: 24)),
-              Spacer(),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: Text(
-              'メール: ${user.email}',
-              style: const TextStyle(fontSize: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(34),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFE7F5FB),
+                  Colors.white,
+                  Color(0xFFF4FBFE),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _primary.withValues(alpha: 0.10),
+                  blurRadius: 30,
+                  offset: const Offset(0, 16),
+                ),
+              ],
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 980;
+                final infoColumn = const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ProfileHeroBadge(),
+                    SizedBox(height: 18),
+                    Text(
+                      'アカウント設定を\n安全に管理できます。',
+                      style: TextStyle(
+                        color: _textStrong,
+                        fontSize: 34,
+                        height: 1.12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.8,
+                      ),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      'ログイン中の管理アカウント情報を確認し、メールアドレスやパスワードの変更をこの画面から実行できます。',
+                      style: TextStyle(
+                        color: Color(0xFF5A6973),
+                        fontSize: 14,
+                        height: 1.7,
+                      ),
+                    ),
+                  ],
+                );
+
+                final accountPanel = Container(
+                  width: compact ? double.infinity : 320,
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: const Color(0x140C5D78),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '現在のアカウント',
+                        style: TextStyle(
+                          color: _textStrong,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF2F7FA),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.alternate_email_rounded,
+                              color: _primary,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                user.email ?? 'メール未設定',
+                                style: const TextStyle(
+                                  color: _textStrong,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (compact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      infoColumn,
+                      const SizedBox(height: 22),
+                      accountPanel,
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: infoColumn),
+                    const SizedBox(width: 24),
+                    accountPanel,
+                  ],
+                );
+              },
             ),
           ),
           const SizedBox(height: 24),
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            elevation: 2,
-            child: ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('メールアドレスを変更'),
-              onTap: () => _changeEmail(context, user),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(30),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x12000000),
+                  blurRadius: 30,
+                  offset: Offset(0, 16),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            elevation: 2,
-            child: ListTile(
-              leading: const Icon(Icons.lock),
-              title: const Text('パスワードを変更'),
-              onTap: () => _changePassword(context, user),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'セキュリティ設定',
+                  style: TextStyle(
+                    color: _textStrong,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  '認証情報の変更は再認証を伴います。安全な環境で操作してください。',
+                  style: TextStyle(
+                    color: _textMuted,
+                    fontSize: 14,
+                    height: 1.7,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                _buildProfileActionCard(
+                  icon: Icons.edit_rounded,
+                  title: 'メールアドレスを変更',
+                  subtitle: 'ログインに使用するメールアドレスを更新します。',
+                  onTap: () => _changeEmail(context, user),
+                ),
+                const SizedBox(height: 16),
+                _buildProfileActionCard(
+                  icon: Icons.lock_rounded,
+                  title: 'パスワードを変更',
+                  subtitle: '管理アカウントのパスワードを再設定します。',
+                  onTap: () => _changePassword(context, user),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProfileActionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 28,
+              offset: Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Material(
+          color: const Color(0xFFFDFEFF),
+          borderRadius: BorderRadius.circular(28),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(28),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Row(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFE1F4FA),
+                          Color(0xFFCDEAF4),
+                        ],
+                      ),
+                    ),
+                    child: Icon(icon, color: _primary, size: 28),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: _textStrong,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            color: _textMuted,
+                            fontSize: 14,
+                            height: 1.7,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Icon(
+                    Icons.arrow_forward_rounded,
+                    color: _primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
